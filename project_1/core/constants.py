@@ -1,0 +1,7 @@
+G = 6.674e-11
+
+# planet earth
+PLANET_MASS = 5.972e24
+PLANET_RADIUS = 6.371e6
+
+SPACESHIP_MASS = 5e6
