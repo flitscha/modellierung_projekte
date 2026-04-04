@@ -1,5 +1,6 @@
 import pygame
 from core.camera import Camera
+from utils.config import SIMULATION_SPEED_STEPS, DEFAULT_SIMULATION_SPEED_INDEX, BASE_SIMULATION_SPEED
 
 
 class InputHandler:
@@ -16,10 +17,15 @@ class InputHandler:
     def __init__(self, camera: Camera):
         self.camera = camera
         self.quit_requested = False
+        self.hud_visible = True
 
-        # Internal pan state
+        self._speed_index = DEFAULT_SIMULATION_SPEED_INDEX
         self._panning = False
         self._pan_last_pos = (0, 0)
+
+    @property
+    def sim_speed(self) -> float:
+        return SIMULATION_SPEED_STEPS[self._speed_index] * BASE_SIMULATION_SPEED
 
     def handle_events(self, events: list[pygame.event.Event]):
         for event in events:
@@ -68,4 +74,13 @@ class InputHandler:
     def _on_key(self, event: pygame.event.Event):
         if event.key == pygame.K_r:
             self.camera.reset()
+ 
+        elif event.key in (pygame.K_PLUS, pygame.K_KP_PLUS, pygame.K_EQUALS):
+            self._speed_index = min(self._speed_index + 1, len(SIMULATION_SPEED_STEPS) - 1)
+ 
+        elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
+            self._speed_index = max(self._speed_index - 1, 0)
+ 
+        elif event.key == pygame.K_h:
+            self.hud_visible = not self.hud_visible
 

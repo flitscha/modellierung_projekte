@@ -3,7 +3,7 @@ from scipy.integrate import odeint
 from collections import deque
 
 from core.constants import G, PLANET_MASS, SPACESHIP_MASS
-from utils.config import SIMULATION_SPEED, TRAIL_MAX_LENGTH
+from utils.config import TRAIL_MAX_LENGTH
 from core.body import Body
 from core.orbit import Orbit
 
@@ -60,10 +60,12 @@ class Simulation:
         return np.concatenate([p1_vel, p2_vel, a1, a2])
 
     def update(self, dt):
-        time_passed = dt * SIMULATION_SPEED
-
+        """ 
+        dt is the elapsed simulation time. 
+        It depends on the actual computation time and the simulation_speed.
+        """
         current_state = self._get_state_vector()
-        new_state = odeint(self.rhs, current_state, [0, time_passed])[-1]
+        new_state = odeint(self.rhs, current_state, [0, dt])[-1]
         self._set_state_vector(new_state)
 
         self._record_trail()

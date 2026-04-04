@@ -2,7 +2,7 @@ import numpy as np
 import pygame
 
 from utils.config import (
-    VISUALISATION_SCALE, COLOR_BG, COLOR_PLANET, COLOR_SHIP, COLOR_START_ORBIT,
+    COLOR_BG, COLOR_PLANET, COLOR_SHIP,
     COLOR_TARGET_ORBIT, COLOR_TRAIL_HEAD, COLOR_TRAIL_TAIL
 )
 from core.camera import Camera
