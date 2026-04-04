@@ -3,6 +3,11 @@ VISUALISATION_SCALE = 1e-5
 
 TRAIL_MAX_LENGTH = 1000
 
+# camera settings
+DEFAULT_ZOOM = 1e-5  # screen-pixels per metre
+MIN_ZOOM = 1e-6
+MAX_ZOOM = 1e-2
+ZOOM_FACTOR = 1.15  # multiplier per scroll-tick
 
 # Colour palette
 COLOR_BG = (5, 5, 20)
