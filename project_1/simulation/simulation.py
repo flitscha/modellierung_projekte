@@ -6,6 +6,7 @@ from core.constants import G, PLANET_MASS, SPACESHIP_MASS
 from utils.config import TRAIL_MAX_LENGTH
 from core.body import Body
 from core.orbit import Orbit
+from core.ship import Ship
 
 
 class Simulation:
@@ -20,7 +21,7 @@ class Simulation:
 
         # bodies
         self.planet = Body(PLANET_MASS, [0.0, 0.0], [0.0, 0.0])
-        self.ship = Body(SPACESHIP_MASS, [r, 0.0], [0.0, v_orbit])
+        self.ship = Ship(SPACESHIP_MASS, [r, 0.0], [0.0, v_orbit])
         self.bodies = [self.planet, self.ship]
 
         # trial

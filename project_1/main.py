@@ -15,7 +15,8 @@ def main():
     sim = Simulation()
     camera = Camera(screen_width=800, screen_height=800)
     renderer = Renderer(screen, camera)
-    input_handler = InputHandler(camera)
+    ship = sim.ship
+    input_handler = InputHandler(camera, ship)
     hud = Hud(screen)
 
     while not input_handler.quit_requested:

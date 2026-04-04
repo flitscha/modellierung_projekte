@@ -1,6 +1,7 @@
 import pygame
 from core.camera import Camera
 from utils.config import SIMULATION_SPEED_STEPS, DEFAULT_SIMULATION_SPEED_INDEX, BASE_SIMULATION_SPEED
+from core.ship import Ship
 
 
 class InputHandler:
@@ -14,8 +15,10 @@ class InputHandler:
             running = False
     """
 
-    def __init__(self, camera: Camera):
+    def __init__(self, camera: Camera, ship: Ship):
         self.camera = camera
+        self.ship = ship
+
         self.quit_requested = False
         self.hud_visible = True
 
@@ -83,4 +86,11 @@ class InputHandler:
  
         elif event.key == pygame.K_h:
             self.hud_visible = not self.hud_visible
+
+        # Thrust test
+        elif event.key == pygame.K_SPACE:
+            self.ship.apply_impulse_tangential(+100)
+ 
+        elif event.key == pygame.K_BACKSPACE:
+            self.ship.apply_impulse_tangential(-100)
 
