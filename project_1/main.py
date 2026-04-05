@@ -1,7 +1,8 @@
 import pygame
 from simulation.simulation import Simulation
 from rendering.renderer import Renderer
-from rendering.hud import Hud
+from gui.hud import Hud
+from gui.menu import Menu, MenuAction
 from core.camera import Camera
 from input.input_handler import InputHandler
 from simulation.autopilot import Autopilot
@@ -17,30 +18,48 @@ def main():
     autopilot = Autopilot()
     camera = Camera(screen_width=800, screen_height=800)
     renderer = Renderer(screen, camera)
-    ship = sim.ship
-    input_handler = InputHandler(camera, ship)
     hud = Hud(screen)
+    menu = Menu(screen)
+    input_handler = InputHandler(camera, sim.ship)
+    menu_open = False
 
     while not input_handler.quit_requested:
-        events = pygame.event.get()
-        input_handler.handle_events(events)
-
-        # Autopilot trigger – needs sim, so handled here rather than in InputHandler
-        for event in events:
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_a and not autopilot.is_active:
-                    autopilot.start(sim)
-                if event.key == pygame.K_r:
-                    sim.reset_ship()
-                    autopilot.reset()
- 
         dt = clock.tick(60) / 1000.0
-        time_passed = dt * input_handler.sim_speed
+        events = pygame.event.get()
 
-        autopilot.update(sim, time_passed)
-        sim.update(time_passed)
+        if menu_open:
+            action = menu.handle_events(events)
+            if action == MenuAction.RESUME:
+                menu_open = False
+            elif action == MenuAction.RESET:
+                sim.reset_ship()
+                autopilot.reset()
+                menu_open = False
+            elif action == MenuAction.QUIT:
+                break
+        else:
+            input_handler.handle_events(events)
+            for event in events:
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        menu_open = True
+                    elif event.key == pygame.K_a and not autopilot.is_active:
+                        autopilot.start(sim)
+                    elif event.key == pygame.K_r:
+                        sim.reset_ship()
+                        autopilot.reset()
+
+            # Only update simulation when menu is closed
+            time_passed = dt * input_handler.sim_speed
+            autopilot.update(sim, time_passed)
+            sim.update(time_passed)
+
+        # Always draw – menu renders as overlay on top
         renderer.draw(sim)
         hud.draw(sim, sim_speed=input_handler.sim_speed, autopilot=autopilot, visible=input_handler.hud_visible)
+        if menu_open:
+            menu.draw()
+
         pygame.display.flip()
 
     pygame.quit()
