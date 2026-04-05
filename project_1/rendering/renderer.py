@@ -74,14 +74,22 @@ class Renderer:
             pygame.draw.line(self.screen, (r, g, b), p0, p1, 1)
 
 
-    def draw(self, sim):
+    def draw(self, sim, override_start: Orbit | None = None, override_target: Orbit | None = None):
+        """
+        override_start / override_target let the orbit editor pass in
+        preview orbits so the user sees live feedback while dragging sliders.
+        """
+
+        start_orbit  = override_start or sim.start_orbit
+        target_orbit = override_target or sim.target_orbit
+
         self.screen.fill(COLOR_BG)
  
         planet_pos = sim.planet.pos
  
         # Target orbits
-        self._draw_orbit_dashed(sim.start_orbit, COLOR_START_ORBIT)
-        self._draw_orbit_dashed(sim.target_orbit, COLOR_TARGET_ORBIT)
+        self._draw_orbit_dashed(start_orbit, COLOR_START_ORBIT)
+        self._draw_orbit_dashed(target_orbit, COLOR_TARGET_ORBIT)
  
         # Trail
         self._draw_trail(sim.trail)
