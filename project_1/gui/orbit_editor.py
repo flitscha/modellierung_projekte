@@ -2,7 +2,6 @@ import pygame
 import numpy as np
 from dataclasses import dataclass
 from core.orbit import Orbit
-from core.constants import PLANET_RADIUS
 
 
 # Colors
@@ -59,7 +58,7 @@ class SliderDef:
 
 
 def _fmt_alt(v):
-    return f"{(v - PLANET_RADIUS)/1e3:,.0f} km"
+    return f"{v/1e3:,.0f} km"
 
 def _fmt_ecc(v):
     return f"{v:.3f}"
@@ -339,11 +338,9 @@ class OrbitEditor:
 
     def _make_sliders(self, orbit: Orbit) -> list[SliderDef]:
         return [
-            SliderDef("Semi-major axis", PLANET_RADIUS + ALT_MIN,
-                      PLANET_RADIUS + ALT_MAX, orbit.semi_major_axis, "alt"),
+            SliderDef("Semi-major axis", ALT_MIN, ALT_MAX, orbit.semi_major_axis, "alt"),
             SliderDef("Eccentricity", ECC_MIN, ECC_MAX, orbit.eccentricity, "ecc"),
-            SliderDef("Arg. periapsis", OMEGA_MIN, OMEGA_MAX,
-                      orbit.argument_of_periapsis, "omega"),
+            SliderDef("Arg. periapsis", OMEGA_MIN, OMEGA_MAX, orbit.argument_of_periapsis, "omega"),
         ]
 
     def _fmt(self, sl: SliderDef) -> str:

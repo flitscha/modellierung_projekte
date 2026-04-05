@@ -63,10 +63,6 @@ def main():
                         sim.reset_ship()
                         autopilot.reset()
 
-            # Only update simulation when menu is closed
-            time_passed = dt * input_handler.sim_speed
-            autopilot.update(sim, time_passed)
-            sim.update(time_passed)
 
         # Always draw – menu renders as overlay on top
         renderer.draw(sim)
@@ -93,6 +89,13 @@ def main():
                 override_target=editor.preview_target_orbit
             )
             editor.draw()
+
+
+        # Only update simulation when menu is closed
+        if app_state == AppState.PLAYING:
+            time_passed = dt * input_handler.sim_speed
+            autopilot.update(sim, time_passed)
+            sim.update(time_passed)
 
         pygame.display.flip()
 
