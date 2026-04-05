@@ -112,13 +112,6 @@ class Hud:
                 ("  IDLE", LABEL_COLOR),
                 ("  [A] start", LABEL_COLOR),
             ]
-        elif state == AutopilotState.WAITING:
-            lines = [
-                ("AUTOPILOT", None),
-                ("  WAITING FOR BURN 1", HIGHLIGHT_COLOR),
-                (f"  r_burn1: {t.r_burn1/1e6:.3f} Mm", TEXT_COLOR),
-                (f"  dv1: {t.delta_v1:+.1f} m/s", TEXT_COLOR),
-            ]
         elif state == AutopilotState.COASTING:
             eta = autopilot.time_to_burn2
             lines = [

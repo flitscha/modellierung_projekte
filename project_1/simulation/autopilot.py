@@ -6,7 +6,6 @@ from simulation.hohmann import compute_hohmann, HohmannTransfer
 
 class AutopilotState(Enum):
     IDLE = auto()  # waiting for user to start
-    WAITING = auto()  # coasting to burn 1 position
     COASTING = auto()  # burn 1 done, coasting to burn 2
     DONE = auto()  # transfer complete
 
@@ -17,9 +16,8 @@ class Autopilot:
 
     State machine
     -------------
-    IDLE -> WAITING -> COASTING -> DONE
+    IDLE -> COASTING -> DONE
     """
-
     def __init__(self):
         self.state: AutopilotState = AutopilotState.IDLE
         self.transfer: HohmannTransfer | None = None
@@ -37,20 +35,17 @@ class Autopilot:
 
     def start(self, sim) -> HohmannTransfer:
         """
-        Compute the transfer and enter WAITING state.
+        Compute the transfer and immediately execute the first burn.
+        (we can do that, because the start-orbit is assumed to be a circle)
         """
         self.transfer = compute_hohmann(sim.start_orbit, sim.target_orbit)
         self._elapsed = 0.0
-        self.state = AutopilotState.WAITING
+        self._execute_burn1(sim)
         return self.transfer
 
     def update(self, sim, dt: float):
         """Advance the autopilot by dt seconds of sim-time."""
-        if self.state == AutopilotState.WAITING:
-            # we can do the first burn immediately, since the start-orbit is a circle
-            self._execute_burn1(sim)
-
-        elif self.state == AutopilotState.COASTING:
+        if self.state == AutopilotState.COASTING:
             self._elapsed += dt
             if self._elapsed >= self.transfer.transfer_time:
                 self._execute_burn2(sim)
