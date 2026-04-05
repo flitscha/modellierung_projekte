@@ -7,41 +7,24 @@ from core.orbit import Orbit
 @dataclass(frozen=True)
 class HohmannTransfer:
     """
-    Results of a Hohmann transfer calculation between two elliptic orbits.
+    Results of a Hohmann transfer calculation between two circular orbits.
 
     All velocities in m/s, time in seconds.
     """
-    delta_v1: float  # impulse at burn 1 (m/s, positive = prograde)
-    delta_v2: float  # impulse at burn 2 (m/s, positive = prograde)
+    delta_v1: float  # impulse at burn 1 (m/s tangential)
+    delta_v2: float  # impulse at burn 2 (m/s tangential)
     delta_v_total: float  # |dv1| + |dv2|
-    transfer_time: float  # coast time between the two burns (s)
-    r_burn1: float  # radius at burn 1 (m)
-    r_burn2: float  # radius at burn 2 (m)
-    ascending: bool  # True = going to higher orbit
+    transfer_time: float  # time between the two burns (s)
 
 
 def compute_hohmann(orbit1: Orbit, orbit2: Orbit) -> HohmannTransfer:
     """
-    Compute the optimal 2-impulse transfer between two coplanar elliptic orbits.
-
-    For an ascending transfer (orbit2 higher than orbit1):
-      - Burn 1 at the apoapsis of orbit1
-      - Burn 2 at the periapsis of orbit2
-
-    For a descending transfer:
-      - Burn 1 at the periapsis of orbit1
-      - Burn 2 at the apoapsis of orbit2
+    Compute the optimal 2-impulse transfer between two coplanar circular orbits.
     """
     mu = G * PLANET_MASS
 
-    ascending = orbit2.semi_major_axis >= orbit1.semi_major_axis
-
-    if ascending:
-        r_burn1 = orbit1.apoapsis
-        r_burn2 = orbit2.periapsis
-    else:
-        r_burn1 = orbit1.periapsis
-        r_burn2 = orbit2.apoapsis
+    r_burn1 = orbit1.periapsis  # this is the radius, because the orbits are circular
+    r_burn2 = orbit2.periapsis
 
     # Semi-major axis of the transfer ellipse
     a_transfer = (r_burn1 + r_burn2) / 2.0
@@ -65,9 +48,6 @@ def compute_hohmann(orbit1: Orbit, orbit2: Orbit) -> HohmannTransfer:
         delta_v1=dv1,
         delta_v2=dv2,
         delta_v_total=abs(dv1) + abs(dv2),
-        transfer_time=t_transfer,
-        r_burn1=r_burn1,
-        r_burn2=r_burn2,
-        ascending=ascending,
+        transfer_time=t_transfer
     )
 

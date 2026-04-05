@@ -3,9 +3,6 @@ from enum import Enum, auto
 
 from simulation.hohmann import compute_hohmann, HohmannTransfer
 
-# How close to the burn radius the ship must be to trigger the burn (metres).
-BURN_RADIUS_TOLERANCE = 5e3   # 5 km
-
 
 class AutopilotState(Enum):
     IDLE = auto()  # waiting for user to start
@@ -16,7 +13,7 @@ class AutopilotState(Enum):
 
 class Autopilot:
     """
-    Executes an optimal 2-impulse transfer between two elliptic orbits.
+    Executes an optimal 2-impulse transfer between two circular orbits.
 
     State machine
     -------------
@@ -41,7 +38,6 @@ class Autopilot:
     def start(self, sim) -> HohmannTransfer:
         """
         Compute the transfer and enter WAITING state.
-        Burn 1 will fire automatically once the ship reaches r_burn1.
         """
         self.transfer = compute_hohmann(sim.start_orbit, sim.target_orbit)
         self._elapsed = 0.0
@@ -51,7 +47,8 @@ class Autopilot:
     def update(self, sim, dt: float):
         """Advance the autopilot by dt seconds of sim-time."""
         if self.state == AutopilotState.WAITING:
-            self._check_burn1(sim)
+            # we can do the first burn immediately, since the start-orbit is a circle
+            self._execute_burn1(sim)
 
         elif self.state == AutopilotState.COASTING:
             self._elapsed += dt
@@ -66,13 +63,10 @@ class Autopilot:
     def _current_radius(self, sim) -> float:
         return float(np.linalg.norm(sim.ship.pos - sim.planet.pos))
 
-    def _check_burn1(self, sim):
-        """Fire burn 1 when the ship is close enough to r_burn1."""
-        r = self._current_radius(sim)
-        if abs(r - self.transfer.r_burn1) < BURN_RADIUS_TOLERANCE:
-            sim.ship.apply_impulse_tangential(self.transfer.delta_v1)
-            self._elapsed = 0.0
-            self.state = AutopilotState.COASTING
+    def _execute_burn1(self, sim):
+        sim.ship.apply_impulse_tangential(self.transfer.delta_v1)
+        self._elapsed = 0.0
+        self.state = AutopilotState.COASTING
 
     def _execute_burn2(self, sim):
         sim.ship.apply_impulse_tangential(self.transfer.delta_v2)

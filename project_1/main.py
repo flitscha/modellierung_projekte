@@ -27,9 +27,12 @@ def main():
 
         # Autopilot trigger – needs sim, so handled here rather than in InputHandler
         for event in events:
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_a:
-                if not autopilot.is_active:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_a and not autopilot.is_active:
                     autopilot.start(sim)
+                if event.key == pygame.K_r:
+                    sim.reset_ship()
+                    autopilot.reset()
  
         dt = clock.tick(60) / 1000.0
         time_passed = dt * input_handler.sim_speed

@@ -15,13 +15,12 @@ class Simulation:
         self.start_orbit = Orbit.circular(altitude=500e3)  # 500 km
         self.target_orbit = Orbit.circular(altitude=5e6)  # 5,000 km
 
-        # calculate the start-velocity, such that the orbit is a circle
-        r = self.start_orbit.semi_major_axis
-        v_orbit = (G * PLANET_MASS / r) ** 0.5
+        # calculate the start-velocity, and start-position
+        pos, vel = self.start_orbit.state_at_periapsis()
 
         # bodies
         self.planet = Body(PLANET_MASS, [0.0, 0.0], [0.0, 0.0])
-        self.ship = Ship(SPACESHIP_MASS, [r, 0.0], [0.0, v_orbit])
+        self.ship = Ship(SPACESHIP_MASS, pos, vel)
         self.bodies = [self.planet, self.ship]
 
         # trial
@@ -69,4 +68,12 @@ class Simulation:
         new_state = odeint(self.rhs, current_state, [0, dt])[-1]
         self._set_state_vector(new_state)
 
+        self._record_trail()
+
+    def reset_ship(self):
+        """Snap the ship back to the periapsis of the start orbit."""
+        pos, vel = self.start_orbit.state_at_periapsis()
+        self.ship.pos = pos
+        self.ship.vel = vel
+        self.trail.clear()
         self._record_trail()

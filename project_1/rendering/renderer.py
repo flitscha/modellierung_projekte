@@ -2,10 +2,11 @@ import numpy as np
 import pygame
 
 from utils.config import (
-    COLOR_BG, COLOR_PLANET, COLOR_SHIP,
+    COLOR_BG, COLOR_PLANET, COLOR_SHIP, COLOR_START_ORBIT,
     COLOR_TARGET_ORBIT, COLOR_TRAIL_HEAD, COLOR_TRAIL_TAIL
 )
 from core.camera import Camera
+from core.orbit import Orbit
 
 
 class Renderer:
@@ -14,26 +15,48 @@ class Renderer:
         self.camera = camera
         self.width, self.height = screen.get_size()
 
-    def _draw_dashed_circle(self, color, center_world, radius_world: float,
-                            dash_count: int = 60, dash_fraction: float = 0.55):
-        center_screen = self.camera.world_to_screen(center_world)
-        radius_px     = self.camera.world_len_to_screen(radius_world)
-        if radius_px < 2:
+    def _orbit_screen_points(self, orbit: Orbit, n_points: int = 256) -> list:
+        """
+        Sample n_points positions along the orbit and convert to screen coords.
+ 
+        Uses the polar equation of an ellipse in the focus:
+            r(theta) = p / (1 + e*cos(theta))
+        where:
+            p is the semi-latus-rectus: p = a * (1 - e^2)
+            a is the semi-major-axis
+            e is the eccentricity
+        """
+        e = orbit.eccentricity
+        a = orbit.semi_major_axis
+        w = orbit.argument_of_periapsis
+ 
+        thetas = np.linspace(0, 2 * np.pi, n_points, endpoint=False)
+        if e < 1.0:
+            rs = a * (1 - e**2) / (1 + e * np.cos(thetas))
+        else:
+            return []  # hyperbolic, skip
+ 
+        # World positions (planet at origin)
+        xs = rs * np.cos(thetas + w)
+        ys = rs * np.sin(thetas + w)
+ 
+        return [self.camera.world_to_screen((x, y)) for x, y in zip(xs, ys)]
+ 
+    def _draw_orbit_solid(self, orbit: Orbit, color):
+        pts = self._orbit_screen_points(orbit)
+        if len(pts) >= 2:
+            pygame.draw.lines(self.screen, color, closed=True, points=pts, width=1)
+ 
+    def _draw_orbit_dashed(self, orbit: Orbit, color, dash: int = 6, gap: int = 4):
+        pts = self._orbit_screen_points(orbit)
+        n   = len(pts)
+        if n < 2:
             return
- 
-        angle_step = 2 * np.pi / dash_count
-        dash_angle  = angle_step * dash_fraction
- 
-        for i in range(dash_count):
-            start_angle = i * angle_step
-            end_angle   = start_angle + dash_angle
-            rect = pygame.Rect(
-                center_screen[0] - radius_px,
-                center_screen[1] - radius_px,
-                radius_px * 2,
-                radius_px * 2,
-            )
-            pygame.draw.arc(self.screen, color, rect, start_angle, end_angle, 1)
+        step = dash + gap
+        for i in range(0, n, step):
+            segment = pts[i: i + dash]
+            if len(segment) >= 2:
+                pygame.draw.lines(self.screen, color, closed=False, points=segment, width=1)
  
     def _draw_trail(self, trail):
         points = list(trail)
@@ -56,8 +79,9 @@ class Renderer:
  
         planet_pos = sim.planet.pos
  
-        # Target orbit (dashed, green)
-        self._draw_dashed_circle(COLOR_TARGET_ORBIT, planet_pos, sim.target_orbit.semi_major_axis)
+        # Target orbits
+        self._draw_orbit_dashed(sim.start_orbit, COLOR_START_ORBIT)
+        self._draw_orbit_dashed(sim.target_orbit, COLOR_TARGET_ORBIT)
  
         # Trail
         self._draw_trail(sim.trail)
