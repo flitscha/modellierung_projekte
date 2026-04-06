@@ -11,13 +11,22 @@ class Ship(Body):
         super().__init__(mass, position, velocity)
         self.total_delta_v: float = 0.0
 
+        # Set by apply_impulse, used to spawn particles
+        self.last_thrust_dir: np.ndarray = np.array([0.0, 1.0])
+        self.last_delta_v_mag: float = 0.0
+
     def reset_delta_v(self):
         self.total_delta_v = 0.0
+        self.last_delta_v_mag = 0.0
 
     def apply_impulse(self, delta_v: np.ndarray):
         """Instantly change the ship's velocity by delta_v"""
+        mag = float(np.linalg.norm(delta_v))
+        if mag > 1e-10:
+            self.last_thrust_dir  = delta_v / mag
+            self.last_delta_v_mag = mag
         self.vel = self.vel + delta_v
-        self.total_delta_v += np.linalg.norm(delta_v)
+        self.total_delta_v += mag
 
     def apply_impulse_tangential(self, magnitude: float):
         """Apply an impulse in the current prograde (tangential) direction"""

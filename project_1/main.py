@@ -35,6 +35,8 @@ def main():
     app_state = AppState.PLAYING
 
     while not input_handler.quit_requested:
+        prev_delta_v = sim.ship.total_delta_v
+
         dt = clock.tick(60) / 1000.0
         events = pygame.event.get()
 
@@ -64,7 +66,7 @@ def main():
                         sim.reset_ship()
                         autopilot.reset()
                         input_handler.reset()
-
+                        renderer.particles.clear()
 
         # Always draw – menu renders as overlay on top
         renderer.draw(sim)
@@ -96,8 +98,15 @@ def main():
         # Only update simulation when menu is closed
         if app_state == AppState.PLAYING:
             time_passed = dt * input_handler.sim_speed
+
             autopilot.update(sim, time_passed)
             sim.update(time_passed)
+
+            # particles
+            if sim.ship.total_delta_v > prev_delta_v:
+                renderer.notify_impulse(sim.ship)
+
+            renderer.update(dt)
 
         pygame.display.flip()
 
@@ -106,3 +115,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

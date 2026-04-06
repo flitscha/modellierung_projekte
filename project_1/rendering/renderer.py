@@ -7,6 +7,7 @@ from utils.config import (
 from core.camera import Camera
 from core.orbit import Orbit
 from core.constants import PLANET_RADIUS
+from rendering.particles import ParticleSystem
 
 
 COLOR_PLANET_BORDER = (80, 140, 255)
@@ -18,6 +19,19 @@ class Renderer:
         self.screen = screen
         self.camera = camera
         self.width, self.height = screen.get_size()
+        self.particles = ParticleSystem()
+
+    def notify_impulse(self, ship):
+        """Spawns a particle burst at the ship's current position."""
+        self.particles.spawn_burst(
+            world_pos=np.array(ship.pos, dtype=float),
+            thrust_direction=ship.last_thrust_dir,
+            delta_v_magnitude=ship.last_delta_v_mag,
+        )
+ 
+    def update(self, real_dt: float):
+        """Advance particles. Call every frame with real dt (not sim dt)."""
+        self.particles.update(real_dt)
 
     def _orbit_screen_points(self, orbit: Orbit, n_points: int = 256) -> list:
         """
@@ -111,6 +125,9 @@ class Renderer:
 
         # Trail
         self._draw_trail(sim.trail)
+
+        # Particles
+        self.particles.draw(self.screen, self.camera)
 
         # Ship
         pygame.draw.circle(self.screen, COLOR_SHIP,
