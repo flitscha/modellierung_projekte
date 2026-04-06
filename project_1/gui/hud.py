@@ -3,7 +3,7 @@ import numpy as np
 
 from core.constants import G, PLANET_MASS, PLANET_RADIUS
 from simulation.autopilot import Autopilot, AutopilotState
-from input.input_handler import FlightMode
+from states import FlightMode
 
 MARGIN = 12  # px from screen edge
 LINE_HEIGHT = 18
