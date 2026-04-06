@@ -57,6 +57,14 @@ class InputHandler:
         for event in events:
             self._handle(event)
 
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_UP] and self.manual_allowed:
+            self.ship.apply_impulse_tangential(+MANUAL_IMPULSE_MS)
+            self.flight_mode = FlightMode.MANUAL
+        if keys[pygame.K_DOWN] and self.manual_allowed:
+            self.ship.apply_impulse_tangential(-MANUAL_IMPULSE_MS)
+            self.flight_mode = FlightMode.MANUAL
+
     def _handle(self, event: pygame.event.Event):
         if event.type == pygame.QUIT:
             self.quit_requested = True
@@ -109,13 +117,4 @@ class InputHandler:
  
         elif event.key == pygame.K_h:
             self.hud_visible = not self.hud_visible
-
-        # manual thrusts (arrow keys)
-        elif event.key == pygame.K_UP and self.manual_allowed:
-            self.ship.apply_impulse_tangential(+MANUAL_IMPULSE_MS)
-            self.flight_mode = FlightMode.MANUAL
- 
-        elif event.key == pygame.K_DOWN and self.manual_allowed:
-            self.ship.apply_impulse_tangential(-MANUAL_IMPULSE_MS)
-            self.flight_mode = FlightMode.MANUAL
 

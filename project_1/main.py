@@ -85,7 +85,7 @@ def main():
             elif result == 'cancel':
                 app_state = AppState.PLAYING
 
-            # Live preview – Kamera-Navigation funktioniert auch hier noch!
+            # live preview
             input_handler.handle_events(events)
             renderer.draw(
                 sim,
