@@ -51,6 +51,10 @@ class Orbit:
         """World-space position of the apoapsis (assuming planet at origin)."""
         return self.apoapsis_direction * self.apoapsis
 
+    @property
+    def is_circle(self) -> bool:
+        return abs(self.eccentricity) <= 1e-8
+
     def state_at_periapsis(self) -> tuple[np.ndarray, np.ndarray]:
         """
         Return (position, velocity) at the periapsis point.

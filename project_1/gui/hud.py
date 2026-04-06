@@ -58,7 +58,6 @@ class Hud:
         w, h = self.screen.get_size()
         self._draw_sim_speed(sim_speed, w, h)
         self._draw_orbit_info(sim, w, h)
-        #self._draw_autopilot(autopilot, w, h)
         self._draw_flight_status(sim, autopilot, flight_mode, w, h)
 
     def _draw_sim_speed(self, sim_speed: float, w: int, h: int):
@@ -102,13 +101,22 @@ class Hud:
  
         # IDLE
         if flight_mode == FlightMode.IDLE:
-            lines = [
-                ("MODE: READY", None),
-                ("", None),
-                (" [A]             autopilot", LABEL_COLOR),
-                (" [UP] / [DOWN]   manual", LABEL_COLOR),
-                (" [R]             reset", LABEL_COLOR),
-            ]
+            if sim.autopilot_allowed():
+                lines = [
+                    ("MODE: READY", None),
+                    ("", None),
+                    (" [A]              autopilot", LABEL_COLOR),
+                    (" [UP] / [DOWN]    manual", LABEL_COLOR),
+                    (" [R]              reset", LABEL_COLOR),
+                ]
+            else:
+                lines = [
+                    ("MODE: READY", None),
+                    (" [UP] / [DOWN]    manual", LABEL_COLOR),
+                    (" [R]              reset", LABEL_COLOR),
+                    ("Autopilot is only supported", None),
+                    ("for circular orbits", None)
+                ]
  
         # MANUAL
         elif flight_mode == FlightMode.MANUAL:

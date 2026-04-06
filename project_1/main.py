@@ -59,7 +59,7 @@ def main():
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         app_state = AppState.MENU
-                    elif event.key == pygame.K_a and not autopilot.is_active and input_handler.autopilot_allowed:
+                    elif event.key == pygame.K_a and not autopilot.is_active and input_handler.autopilot_allowed and sim.autopilot_allowed():
                         input_handler.set_autopilot_active()
                         autopilot.start(sim)
                     elif event.key == pygame.K_r:

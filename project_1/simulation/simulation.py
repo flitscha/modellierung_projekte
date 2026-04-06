@@ -78,3 +78,7 @@ class Simulation:
         self.ship.reset_delta_v()
         self.trail.clear()
         self._record_trail()
+
+    def autopilot_allowed(self):
+        """autopilot is only supported for circular orbits"""
+        return self.start_orbit.is_circle and self.target_orbit.is_circle
