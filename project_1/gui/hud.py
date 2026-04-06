@@ -3,6 +3,7 @@ import numpy as np
 
 from core.constants import G, PLANET_MASS, PLANET_RADIUS
 from simulation.autopilot import Autopilot, AutopilotState
+from input.input_handler import FlightMode
 
 MARGIN = 12  # px from screen edge
 LINE_HEIGHT = 18
@@ -13,6 +14,7 @@ TEXT_COLOR = (210, 210, 210)
 LABEL_COLOR = (120, 140, 180)  # dimmer, for labels
 HIGHLIGHT_COLOR = (255, 220, 100)  # yellow, for important values
 SUCCESS_COLOR = (80, 220, 120)
+WARNING_COLOR = (255, 100, 80)
 
 
 def _orbital_period(semi_major_axis: float) -> float:
@@ -49,15 +51,15 @@ class Hud:
         # Pre-create a reusable surface for panel backgrounds
         self._panel_surf = pygame.Surface((1, 1), pygame.SRCALPHA)
 
-    def draw(self, sim, sim_speed: float, autopilot: Autopilot, visible: bool):
+    def draw(self, sim, sim_speed: float, autopilot: Autopilot, flight_mode: FlightMode, visible: bool):
         if not visible:
             return
 
         w, h = self.screen.get_size()
         self._draw_sim_speed(sim_speed, w, h)
         self._draw_orbit_info(sim, w, h)
-        self._draw_ship_telemetry(sim, w, h)
-        self._draw_autopilot(autopilot, w, h)
+        #self._draw_autopilot(autopilot, w, h)
+        self._draw_flight_status(sim, autopilot, flight_mode, w, h)
 
     def _draw_sim_speed(self, sim_speed: float, w: int, h: int):
         lines = [
@@ -87,56 +89,62 @@ class Hud:
         panel_w = 210
         self._draw_panel(lines, x=w - panel_w - MARGIN, y=MARGIN, fixed_width=panel_w)
 
-    def _draw_ship_telemetry(self, sim, w: int, h: int):
-        vel = sim.ship.vel
-        speed = np.linalg.norm(vel)
-        r = np.linalg.norm(sim.ship.pos - sim.planet.pos)
-        alt_km = (r - PLANET_RADIUS) / 1000
 
-        lines = [
-            ("SHIP", None),
-            (f"  Speed:  {speed:.0f} m/s", TEXT_COLOR),
-            (f"  Alt:    {alt_km:,.0f} km", TEXT_COLOR),
-        ]
-        # Anchor to bottom-left
-        panel_h = LINE_HEIGHT * len(lines) + PANEL_PADDING * 2
-        self._draw_panel(lines, x=MARGIN, y=h - panel_h - MARGIN)
-
-    def _draw_autopilot(self, autopilot: Autopilot, w: int, h: int):
-        state = autopilot.state
-        t     = autopilot.transfer
+    def _draw_flight_status(self, sim, autopilot: Autopilot, flight_mode: FlightMode, w: int, h: int):
+        """
+        Bottom-left panel. Shows:
+        - Current mode + hints when IDLE
+        - Delta-v used + autopilot state when active
+        """
+        dv_used = sim.ship.total_delta_v
+        ap_state = autopilot.state
+        ap_t = autopilot.transfer
  
-        if state == AutopilotState.IDLE:
+        # IDLE
+        if flight_mode == FlightMode.IDLE:
             lines = [
-                ("AUTOPILOT", None),
-                ("  IDLE", LABEL_COLOR),
-                ("  [A] start", LABEL_COLOR),
+                ("MODE: READY", None),
+                ("", None),
+                (" [A]             autopilot", LABEL_COLOR),
+                (" [UP] / [DOWN]   manual", LABEL_COLOR),
+                (" [R]             reset", LABEL_COLOR),
             ]
-        elif state == AutopilotState.COASTING:
-            eta = autopilot.time_to_burn2
+ 
+        # MANUAL
+        elif flight_mode == FlightMode.MANUAL:
             lines = [
-                ("AUTOPILOT", None),
-                ("  WAITING FOR BURN 2", HIGHLIGHT_COLOR),
-                (f"  dv1: {t.delta_v1:+.1f} m/s (DONE)", TEXT_COLOR),
-                (f"  dv2:  {t.delta_v2:+.1f} m/s", TEXT_COLOR),
-                (f"  ETA:  {_format_time(eta)}", HIGHLIGHT_COLOR),
+                ("MODE: MANUAL", None),
+                (f" Δv used:    {dv_used:.0f} m/s", HIGHLIGHT_COLOR),
             ]
-        elif state == AutopilotState.DONE:
-            lines = [
-                ("AUTOPILOT", None),
-                ("  DONE", SUCCESS_COLOR),
-                (f"  dv1: {t.delta_v1:+.1f} m/s", TEXT_COLOR),
-                (f"  dv2: {t.delta_v2:+.1f} m/s", TEXT_COLOR),
-                (f"  dvT: {t.delta_v_total:.1f} m/s", HIGHLIGHT_COLOR),
-            ]
+            lines += [(" [UP] / [DOWN] thrust", LABEL_COLOR)]
+ 
+        # Autopilot
+        elif flight_mode == FlightMode.AUTOPILOT:
+            if ap_state == AutopilotState.COASTING:
+                eta = autopilot.time_to_burn2
+                lines = [
+                    ("MODE: AUTOPILOT", None),
+                    ("COASTING TO BURN 2", HIGHLIGHT_COLOR),
+                    (f" dv1: {ap_t.delta_v1:+.1f} m/s (DONE)", TEXT_COLOR),
+                    (f" Δv2: {ap_t.delta_v2:+.1f} m/s", TEXT_COLOR),
+                    (f" ETA: {_format_time(eta)}", HIGHLIGHT_COLOR),
+                ]
+            elif ap_state == AutopilotState.DONE:
+                lines = [
+                    ("MODE: AUTOPILOT", None),
+                    ("TRANSFER COMPLETE", SUCCESS_COLOR),
+                    (f" Δv1:    {ap_t.delta_v1:+.1f} m/s", TEXT_COLOR),
+                    (f" Δv2:    {ap_t.delta_v2:+.1f} m/s", TEXT_COLOR),
+                    (f" Δv tot: {ap_t.delta_v_total:.1f} m/s", HIGHLIGHT_COLOR),
+                ]
+            else:
+                lines = [("MODE: AUTOPILOT", None)]
         else:
-            return
+            lines = []
  
-        ship_lines   = 5
-        ship_panel_h = LINE_HEIGHT * ship_lines + PANEL_PADDING * 2
-        ap_panel_h   = LINE_HEIGHT * len(lines)  + PANEL_PADDING * 2
-        y = h - ship_panel_h - ap_panel_h - MARGIN * 2
-        self._draw_panel(lines, x=MARGIN, y=y)
+        if lines:
+            panel_h = self._panel_height(lines)
+            self._draw_panel(lines, x=MARGIN, y=h - panel_h - MARGIN)
 
 
     def _draw_panel(self, lines: list, x: int, y: int, fixed_width: int | None = None):
@@ -170,4 +178,11 @@ class Hud:
             surf = self.font.render(text, True, color)
             self.screen.blit(surf, (x + PANEL_PADDING, ty))
             ty += LINE_HEIGHT
+
+ 
+    def _panel_height(self, lines: list) -> int:
+        h = PANEL_PADDING * 2
+        for text, _ in lines:
+            h += LINE_HEIGHT if text else LINE_HEIGHT // 2
+        return h
 

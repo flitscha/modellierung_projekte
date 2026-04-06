@@ -8,5 +8,7 @@
 | `R` | Reset simulation |
 | `H` | Toggle HUD |
 | `A` | enable autopilot |
+| `UP` / `DOWN` | manual thrust in tangential direction |
 | Scroll wheel | Zoom in / out (centered on mouse cursor) |
 | Right-click + drag | Pan camera |
+| `C` | reset camera |

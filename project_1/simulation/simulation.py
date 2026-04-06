@@ -75,5 +75,6 @@ class Simulation:
         pos, vel = self.start_orbit.state_at_periapsis()
         self.ship.pos = pos
         self.ship.vel = vel
+        self.ship.reset_delta_v()
         self.trail.clear()
         self._record_trail()

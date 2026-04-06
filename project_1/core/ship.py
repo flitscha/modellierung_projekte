@@ -9,25 +9,18 @@ class Ship(Body):
 
     def __init__(self, mass: float, position, velocity):
         super().__init__(mass, position, velocity)
+        self.total_delta_v: float = 0.0
 
+    def reset_delta_v(self):
+        self.total_delta_v = 0.0
 
     def apply_impulse(self, delta_v: np.ndarray):
-        """
-        Instantly change the ship's velocity by delta_v.
-
-        Parameters
-        ----------
-        delta_v : np.ndarray
-            Velocity change vector in m/s [dvx, dvy].
-        """
+        """Instantly change the ship's velocity by delta_v"""
         self.vel = self.vel + delta_v
+        self.total_delta_v += np.linalg.norm(delta_v)
 
     def apply_impulse_tangential(self, magnitude: float):
-        """
-        Apply an impulse in the current prograde (tangential) direction.
-        Positive magnitude = prograde (speeds up, raises orbit).
-        Negative magnitude = retrograde (slows down, lowers orbit).
-        """
+        """Apply an impulse in the current prograde (tangential) direction"""
         tangent = self._tangential_direction()
         self.apply_impulse(tangent * magnitude)
 
@@ -38,3 +31,4 @@ class Ship(Body):
         if vel_norm < 1e-10:
             return np.array([0.0, 1.0])
         return self.vel / vel_norm
+

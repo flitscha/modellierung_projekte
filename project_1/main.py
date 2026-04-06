@@ -57,16 +57,18 @@ def main():
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         app_state = AppState.MENU
-                    elif event.key == pygame.K_a and not autopilot.is_active:
+                    elif event.key == pygame.K_a and not autopilot.is_active and input_handler.autopilot_allowed:
+                        input_handler.set_autopilot_active()
                         autopilot.start(sim)
                     elif event.key == pygame.K_r:
                         sim.reset_ship()
                         autopilot.reset()
+                        input_handler.reset()
 
 
         # Always draw – menu renders as overlay on top
         renderer.draw(sim)
-        hud.draw(sim, sim_speed=input_handler.sim_speed, autopilot=autopilot, visible=input_handler.hud_visible)
+        hud.draw(sim, input_handler.sim_speed, autopilot, input_handler.flight_mode, input_handler.hud_visible)
         if app_state == AppState.MENU:
             menu.draw()
 

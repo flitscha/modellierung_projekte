@@ -1,7 +1,15 @@
 import pygame
+from enum import Enum, auto
+
 from core.camera import Camera
-from utils.config import SIMULATION_SPEED_STEPS, DEFAULT_SIMULATION_SPEED_INDEX, BASE_SIMULATION_SPEED
+from utils.config import SIMULATION_SPEED_STEPS, DEFAULT_SIMULATION_SPEED_INDEX, BASE_SIMULATION_SPEED, MANUAL_IMPULSE_MS
 from core.ship import Ship
+
+
+class FlightMode(Enum):
+    IDLE = auto()  # no burns yet
+    MANUAL = auto()  # user has fired at least one manual burn
+    AUTOPILOT = auto()  # autopilot is active or was used
 
 
 class InputHandler:
@@ -21,6 +29,7 @@ class InputHandler:
 
         self.quit_requested = False
         self.hud_visible = True
+        self.flight_mode = FlightMode.IDLE
 
         self._speed_index = DEFAULT_SIMULATION_SPEED_INDEX
         self._panning = False
@@ -29,6 +38,20 @@ class InputHandler:
     @property
     def sim_speed(self) -> float:
         return SIMULATION_SPEED_STEPS[self._speed_index] * BASE_SIMULATION_SPEED
+
+    @property
+    def manual_allowed(self) -> bool:
+        return self.flight_mode in (FlightMode.IDLE, FlightMode.MANUAL)
+ 
+    @property
+    def autopilot_allowed(self) -> bool:
+        return self.flight_mode in (FlightMode.IDLE, FlightMode.AUTOPILOT)
+ 
+    def set_autopilot_active(self):
+        self.flight_mode = FlightMode.AUTOPILOT
+ 
+    def reset(self):
+        self.flight_mode = FlightMode.IDLE
 
     def handle_events(self, events: list[pygame.event.Event]):
         for event in events:
@@ -75,7 +98,7 @@ class InputHandler:
             self._pan_last_pos = event.pos
 
     def _on_key(self, event: pygame.event.Event):
-        if event.key == pygame.K_r:
+        if event.key == pygame.K_c:
             self.camera.reset()
  
         elif event.key in (pygame.K_PLUS, pygame.K_KP_PLUS, pygame.K_EQUALS):
@@ -87,10 +110,12 @@ class InputHandler:
         elif event.key == pygame.K_h:
             self.hud_visible = not self.hud_visible
 
-        # Thrust test
-        elif event.key == pygame.K_SPACE:
-            self.ship.apply_impulse_tangential(+100)
+        # manual thrusts (arrow keys)
+        elif event.key == pygame.K_UP and self.manual_allowed:
+            self.ship.apply_impulse_tangential(+MANUAL_IMPULSE_MS)
+            self.flight_mode = FlightMode.MANUAL
  
-        elif event.key == pygame.K_BACKSPACE:
-            self.ship.apply_impulse_tangential(-100)
+        elif event.key == pygame.K_DOWN and self.manual_allowed:
+            self.ship.apply_impulse_tangential(-MANUAL_IMPULSE_MS)
+            self.flight_mode = FlightMode.MANUAL
 
