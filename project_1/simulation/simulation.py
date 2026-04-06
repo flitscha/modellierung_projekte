@@ -3,7 +3,7 @@ from scipy.integrate import odeint
 from collections import deque
 
 from core.constants import G, PLANET_MASS, SPACESHIP_MASS
-from utils.config import TRAIL_MAX_LENGTH
+from config import TRAIL_MAX_LENGTH
 from core.body import Body
 from core.orbit import Orbit
 from core.ship import Ship

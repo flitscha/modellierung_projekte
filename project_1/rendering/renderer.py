@@ -1,6 +1,6 @@
 import numpy as np
 import pygame
-from utils.config import (
+from config import (
     COLOR_BG, COLOR_PLANET, COLOR_SHIP, COLOR_START_ORBIT,
     COLOR_TARGET_ORBIT, COLOR_TRAIL_HEAD, COLOR_TRAIL_TAIL
 )

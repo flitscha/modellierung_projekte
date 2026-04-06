@@ -1,6 +1,6 @@
 import numpy as np
 
-from utils.config import DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, ZOOM_FACTOR
+from config import DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, ZOOM_FACTOR
 
 
 class Camera:

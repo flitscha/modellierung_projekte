@@ -8,7 +8,7 @@ from gui.menu import Menu, MenuAction
 from gui.orbit_editor import OrbitEditor
 from core.camera import Camera
 from input.input_state import InputState
-from utils.config import (
+from config import (
     SIMULATION_SPEED_STEPS, DEFAULT_SIMULATION_SPEED_INDEX,
     BASE_SIMULATION_SPEED, MANUAL_IMPULSE_MS
 )
@@ -49,7 +49,7 @@ class Game:
 
     @property
     def _autopilot_allowed(self) -> bool:
-        return self.flight_mode in (FlightMode.IDLE, FlightMode.AUTOPILOT)
+        return self.flight_mode in (FlightMode.IDLE, FlightMode.AUTOPILOT) and self.sim.autopilot_allowed()
 
     # ------------------ Update ------------------------
     def update(self, input_state: InputState, dt: float):
