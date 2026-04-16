@@ -5,7 +5,7 @@ from game import Game
 
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((800, 800), pygame.RESIZABLE)
+    screen = pygame.display.set_mode((500, 500), pygame.RESIZABLE)
     pygame.display.set_caption("Hohmann Transfer Simulator")
     clock = pygame.time.Clock()
 
