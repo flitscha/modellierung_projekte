@@ -63,8 +63,8 @@ class Simulation:
         return np.concatenate([p1_vel, p2_vel, a1, a2])
 
     def update(self, dt):
-        """ 
-        dt is the elapsed simulation time. 
+        """
+        dt is the elapsed simulation time.
         It depends on the actual computation time and the simulation_speed.
         """
         current_state = self._get_state_vector()

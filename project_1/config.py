@@ -1,4 +1,4 @@
-TRAIL_MAX_LENGTH = 500
+TRAIL_MAX_LENGTH = 100
 
 # simulation speed (the BASE_SIMULATION_SPEED gets multiplied with the step-values)
 BASE_SIMULATION_SPEED = 500.0

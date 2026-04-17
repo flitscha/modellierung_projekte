@@ -77,7 +77,7 @@ class Game:
                 override_target=self.editor.preview_target_orbit,
             )
         else:
-            self.renderer.draw(self.sim)
+            self.renderer.draw(self.sim, self.sim_speed)
 
         self.hud.draw(self.sim, self.sim_speed, self.autopilot, self.flight_mode, self.hud_visible)
 

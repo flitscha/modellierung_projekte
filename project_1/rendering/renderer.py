@@ -2,7 +2,8 @@ import numpy as np
 import pygame
 from config import (
     COLOR_BG, COLOR_PLANET, COLOR_SHIP, COLOR_START_ORBIT,
-    COLOR_TARGET_ORBIT, COLOR_TRAIL_HEAD, COLOR_TRAIL_TAIL, COLOR_CURRENT_ORBIT
+    COLOR_TARGET_ORBIT, COLOR_TRAIL_HEAD, COLOR_TRAIL_TAIL, COLOR_CURRENT_ORBIT,
+    BASE_SIMULATION_SPEED
 )
 from core.camera import Camera
 from core.orbit import Orbit
@@ -20,6 +21,9 @@ class Renderer:
         self.camera = camera
         self.width, self.height = screen.get_size()
         self.particles = ParticleSystem()
+
+        # safe the number of trail points, to make it smooth, when changing simulation speed
+        self.current_number_trail_points = 500
 
     def notify_impulse(self, ship):
         """Spawns a particle burst at the ship's current position."""
@@ -75,13 +79,23 @@ class Renderer:
             if len(segment) >= 2:
                 pygame.draw.lines(self.screen, color, closed=False, points=segment, width=1)
 
-    def _draw_trail(self, trail):
+    def _draw_trail(self, trail, simulation_speed):
         points = list(trail)
-        n = len(points)
+        num_points = len(points)
+
+        # if the simulation speed is very fast, draw fewer points
+        n = min(num_points, int(num_points * BASE_SIMULATION_SPEED / simulation_speed))
         if n < 2:
             return
-        for i in range(1, n):
-            t  = i / (n - 1)
+
+        # interpolate the number of trail points (to make it smooth when the simulation-speed changes)
+        self.current_number_trail_points = n + 0.985 * (self.current_number_trail_points - n)
+        new_n = min(int(self.current_number_trail_points), num_points)
+
+        points = points[-new_n:]
+
+        for i in range(1, new_n):
+            t  = i / (new_n - 1)
             r  = int(COLOR_TRAIL_TAIL[0] + t * (COLOR_TRAIL_HEAD[0] - COLOR_TRAIL_TAIL[0]))
             g  = int(COLOR_TRAIL_TAIL[1] + t * (COLOR_TRAIL_HEAD[1] - COLOR_TRAIL_TAIL[1]))
             b  = int(COLOR_TRAIL_TAIL[2] + t * (COLOR_TRAIL_HEAD[2] - COLOR_TRAIL_TAIL[2]))
@@ -105,7 +119,7 @@ class Renderer:
         pygame.draw.circle(self.screen, COLOR_PLANET_BORDER, center, radius_px, 1)
 
 
-    def draw(self, sim, override_start: Orbit | None = None,
+    def draw(self, sim, simulation_speed, override_start: Orbit | None = None,
              override_target: Orbit | None = None):
         """
         override_start / override_target let the orbit editor pass in
@@ -124,10 +138,11 @@ class Renderer:
         self._draw_planet(sim.planet.pos)
 
         # current orbit of spaceship
-        self._draw_orbit_solid(sim.current_orbit, COLOR_CURRENT_ORBIT)
+        if sim.ship.total_delta_v > 0.0:
+            self._draw_orbit_solid(sim.current_orbit, COLOR_CURRENT_ORBIT)
 
         # Trail
-        self._draw_trail(sim.trail)
+        self._draw_trail(sim.trail, simulation_speed)
 
         # Particles
         self.particles.draw(self.screen, self.camera)
