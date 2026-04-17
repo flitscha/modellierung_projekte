@@ -1,9 +1,16 @@
 import pygame
+import ctypes
 from input.input_reader import InputReader
 from game import Game
 
 
 def main():
+    # Windows DPI-Fix
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except AttributeError:
+        pass
+
     pygame.init()
     screen = pygame.display.set_mode((500, 500), pygame.RESIZABLE)
     pygame.display.set_caption("Hohmann Transfer Simulator")

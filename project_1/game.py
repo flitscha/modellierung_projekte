@@ -73,6 +73,7 @@ class Game:
         if self.app_state == AppState.EDITOR:
             self.renderer.draw(
                 self.sim,
+                self.sim_speed,
                 override_start=self.editor.preview_start_orbit,
                 override_target=self.editor.preview_target_orbit,
             )
