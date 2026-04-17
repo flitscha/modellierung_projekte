@@ -39,7 +39,7 @@ def compute_hohmann(orbit1: Orbit, orbit2: Orbit) -> HohmannTransfer:
 
     # Delta-v (positive = prograde)
     dv1 = v1_transfer - v1_orbit
-    dv2 = v2_orbit    - v2_transfer
+    dv2 = v2_orbit - v2_transfer
 
     # Coast time = half period of transfer ellipse
     t_transfer = np.pi * np.sqrt(a_transfer**3 / mu)

@@ -28,6 +28,9 @@ class Simulation:
         self.trail: deque[tuple[float, float]] = deque(maxlen=TRAIL_MAX_LENGTH)
         self._record_trail()  # record the initial position right away
 
+        # curent orbit of the ship
+        self.current_orbit = self.ship.get_current_orbit(self.planet)
+
     def _record_trail(self):
         self.trail.append((self.ship.pos[0], self.ship.pos[1]))
 
@@ -69,6 +72,7 @@ class Simulation:
         self._set_state_vector(new_state)
 
         self._record_trail()
+        self.current_orbit = self.ship.get_current_orbit(self.planet)
 
     def reset_ship(self):
         """Snap the ship back to the periapsis of the start orbit."""

@@ -2,7 +2,7 @@ import numpy as np
 import pygame
 from config import (
     COLOR_BG, COLOR_PLANET, COLOR_SHIP, COLOR_START_ORBIT,
-    COLOR_TARGET_ORBIT, COLOR_TRAIL_HEAD, COLOR_TRAIL_TAIL
+    COLOR_TARGET_ORBIT, COLOR_TRAIL_HEAD, COLOR_TRAIL_TAIL, COLOR_CURRENT_ORBIT
 )
 from core.camera import Camera
 from core.orbit import Orbit
@@ -122,6 +122,9 @@ class Renderer:
 
         # Planet
         self._draw_planet(sim.planet.pos)
+
+        # current orbit of spaceship
+        self._draw_orbit_solid(sim.current_orbit, COLOR_CURRENT_ORBIT)
 
         # Trail
         self._draw_trail(sim.trail)
