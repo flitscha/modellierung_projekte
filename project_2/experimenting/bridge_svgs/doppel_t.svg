@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" viewBox="0 0 400 200">
+  <!-- Doppel-T-Traeger -->
+  <!-- B=40.0mm H=20.0mm L=200.0mm -->
+  <rect width="400" height="200" fill="white"/>
+  <rect x="0.0" y="0.0" width="400.0" height="40.0" fill="black"/>
+  <rect x="160.0" y="40.0" width="80.0" height="120.0" fill="black"/>
+  <rect x="0.0" y="160.0" width="400.0" height="40.0" fill="black"/>
+</svg>

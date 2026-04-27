@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" viewBox="0 0 400 200">
+  <!-- Gitter mit Rippen -->
+  <!-- B=40.0mm H=20.0mm L=200.0mm -->
+  <rect width="400" height="200" fill="white"/>
+  <rect x="0.0" y="0.0" width="400.0" height="25.0" fill="black"/>
+  <rect x="0.0" y="175.0" width="400.0" height="25.0" fill="black"/>
+  <rect x="0.0" y="25.0" width="20.0" height="150.0" fill="black"/>
+  <rect x="380.0" y="25.0" width="20.0" height="150.0" fill="black"/>
+  <rect x="82.0" y="25.0" width="20.0" height="150.0" fill="black"/>
+  <rect x="154.0" y="25.0" width="20.0" height="150.0" fill="black"/>
+  <rect x="226.0" y="25.0" width="20.0" height="150.0" fill="black"/>
+  <rect x="298.0" y="25.0" width="20.0" height="150.0" fill="black"/>
+</svg>
