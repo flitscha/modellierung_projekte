@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" viewBox="0 0 400 200">
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="15" viewBox="0 0 300 15">
   <!-- Hohlrechteck -->
-  <!-- B=40.0mm H=20.0mm L=200.0mm -->
-  <rect width="400" height="200" fill="white"/>
-  <rect x="0.0" y="0.0" width="400.0" height="200.0" fill="black"/>
-  <rect x="25.0" y="25.0" width="350.0" height="150.0" fill="white"/>
+  <!-- B=300.0mm H=15.0mm L=300.0mm -->
+  <rect width="300" height="15" fill="white"/>
+  <rect x="0.0" y="0.0" width="300.0" height="15.0" fill="black"/>
+  <rect x="2.5" y="2.5" width="295.0" height="10.0" fill="white"/>
 </svg>

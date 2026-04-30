@@ -1,13 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" viewBox="0 0 400 200">
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="15" viewBox="0 0 300 15">
   <!-- Gitter mit Rippen -->
-  <!-- B=40.0mm H=20.0mm L=200.0mm -->
-  <rect width="400" height="200" fill="white"/>
-  <rect x="0.0" y="0.0" width="400.0" height="25.0" fill="black"/>
-  <rect x="0.0" y="175.0" width="400.0" height="25.0" fill="black"/>
-  <rect x="0.0" y="25.0" width="20.0" height="150.0" fill="black"/>
-  <rect x="380.0" y="25.0" width="20.0" height="150.0" fill="black"/>
-  <rect x="82.0" y="25.0" width="20.0" height="150.0" fill="black"/>
-  <rect x="154.0" y="25.0" width="20.0" height="150.0" fill="black"/>
-  <rect x="226.0" y="25.0" width="20.0" height="150.0" fill="black"/>
-  <rect x="298.0" y="25.0" width="20.0" height="150.0" fill="black"/>
+  <!-- B=300.0mm H=15.0mm L=300.0mm -->
+  <rect width="300" height="15" fill="white"/>
+  <rect x="0.0" y="0.0" width="300.0" height="2.5" fill="black"/>
+  <rect x="0.0" y="12.5" width="300.0" height="2.5" fill="black"/>
+  <rect x="0.0" y="2.5" width="2.0" height="10.0" fill="black"/>
+  <rect x="298.0" y="2.5" width="2.0" height="10.0" fill="black"/>
+  <rect x="60.2" y="2.5" width="2.0" height="10.0" fill="black"/>
+  <rect x="119.4" y="2.5" width="2.0" height="10.0" fill="black"/>
+  <rect x="178.6" y="2.5" width="2.0" height="10.0" fill="black"/>
+  <rect x="237.8" y="2.5" width="2.0" height="10.0" fill="black"/>
 </svg>

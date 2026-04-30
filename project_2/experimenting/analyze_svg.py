@@ -17,8 +17,8 @@ import sys
 import os
 
 # Auflösung für die Rasterisierung
-RASTER_W = 200
-RASTER_H = 100
+RASTER_W = 300
+RASTER_H = 15
 THRESHOLD = 128  # Grauwertschwelle: < 128 = Material (dunkel)
 
 
@@ -284,7 +284,8 @@ def visualize_analysis(svg_path: str, save_path: str = None):
 
 # ============================================================
 if __name__ == "__main__":
-    svg_dir = sys.argv[1] if len(sys.argv) > 1 else "bridge_svgs"
+    default_svg_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge_svgs")
+    svg_dir = sys.argv[1] if len(sys.argv) > 1 else default_svg_dir
 
     print("SVG Brücken-Analyse")
     print(f"Analysiere alle SVGs in: {svg_dir}")

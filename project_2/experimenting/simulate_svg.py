@@ -29,8 +29,8 @@ def svg_to_mask(svg_path, nx, ny):
 
 
 def run(svg_path, nx=200, ny=100, plots=True, save_path=None):
-    L = 200e-3
-    H = 20e-3
+    L = 300e-3
+    H = 15e-3
     hx = L / nx
     hy = H / ny
 
@@ -199,8 +199,9 @@ def run(svg_path, nx=200, ny=100, plots=True, save_path=None):
 
 
 if __name__ == "__main__":
-    svg_dir = sys.argv[1] if len(sys.argv) > 1 else "bridge_svgs"
-    nx, ny  = 60, 30
+    default_svg_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge_svgs")
+    svg_dir = sys.argv[1] if len(sys.argv) > 1 else default_svg_dir
+    nx, ny  = 300, 15
 
     files = sorted(glob.glob(os.path.join(svg_dir, "*.svg")))
     if not files:

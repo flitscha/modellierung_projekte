@@ -15,17 +15,17 @@ import numpy as np
 import os
 
 # === Brückenparameter (müssen mit Simulation übereinstimmen) ===
-B = 40.0    # Breite des Querschnitts [mm]
-H = 20.0    # Höhe des Querschnitts [mm]
-L = 200.0   # Länge der Brücke [mm]
+L = 50.0    # Breite des Querschnitts [mm]
+H = 15.0    # Höhe des Querschnitts [mm]
+L = 300.0   # Länge der Brücke [mm]
 
 # === SVG Auflösung ===
-SVG_W = 400   # Pixel
-SVG_H = 200   # Pixel
-scale_x = SVG_W / B
+SVG_W = 300   # Pixel
+SVG_H = 15   # Pixel # hier die werte auf die im arbeitsauftrag geändert
+scale_x = SVG_W / L # geändert von B zu L 
 scale_y = SVG_H / H
 
-OUTPUT_DIR = "bridge_svgs"
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge_svgs") # change to fit curent directory of this .py file
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
@@ -35,7 +35,7 @@ def svg_header(name):
         f'width="{SVG_W}" height="{SVG_H}" '
         f'viewBox="0 0 {SVG_W} {SVG_H}">\n'
         f'  <!-- {name} -->\n'
-        f'  <!-- B={B}mm H={H}mm L={L}mm -->\n'
+        f'  <!-- B={L}mm H={H}mm L={L}mm -->\n'
         f'  <rect width="{SVG_W}" height="{SVG_H}" fill="white"/>\n'
     )
 
@@ -67,7 +67,7 @@ def circle_fill(cx_mm, cy_mm, r_mm, color="white"):
 
 
 def material_ratio(filled_area_mm2):
-    total = B * H
+    total = L * H
     return filled_area_mm2 / total
 
 
@@ -76,9 +76,9 @@ def material_ratio(filled_area_mm2):
 # ============================================================
 def gen_solid():
     name = "vollrechteck"
-    area = B * H
+    area = L * H
     svg = svg_header("Vollrechteck")
-    svg += rect(0, 0, B, H)
+    svg += rect(0, 0, L, H)
     svg += svg_footer()
     with open(f"{OUTPUT_DIR}/{name}.svg", "w") as f:
         f.write(svg)
@@ -93,14 +93,14 @@ def gen_i_beam(flange_h=3.0, web_t=4.0):
     fh = flange_h
     wt = web_t
     wh = H - 2 * fh
-    wx = (B - wt) / 2
+    wx = (L - wt) / 2
 
-    area = 2 * (B * fh) + wt * wh
+    area = 2 * (L * fh) + wt * wh
 
     svg = svg_header("I-Traeger")
-    svg += rect(0, 0, B, fh)               # oberer Flansch
+    svg += rect(0, 0, L, fh)               # oberer Flansch
     svg += rect(wx, fh, wt, wh)            # Steg
-    svg += rect(0, H - fh, B, fh)         # unterer Flansch
+    svg += rect(0, H - fh, L, fh)         # unterer Flansch
     svg += svg_footer()
     with open(f"{OUTPUT_DIR}/{name}.svg", "w") as f:
         f.write(svg)
@@ -113,12 +113,12 @@ def gen_i_beam(flange_h=3.0, web_t=4.0):
 def gen_hollow_rect(t_wall=2.5):
     name = "hohlrechteck"
     t = t_wall
-    inner_w = B - 2 * t
+    inner_w = L - 2 * t
     inner_h = H - 2 * t
-    area = B * H - inner_w * inner_h
+    area = L * H - inner_w * inner_h
 
     svg = svg_header("Hohlrechteck")
-    svg += rect(0, 0, B, H)
+    svg += rect(0, 0, L, H)
     svg += rect(t, t, inner_w, inner_h, color="white")
     svg += svg_footer()
     with open(f"{OUTPUT_DIR}/{name}.svg", "w") as f:
@@ -135,18 +135,18 @@ def gen_grid(n_ribs=4, rib_t=2.0, flange_h=2.5):
     wh = H - 2 * fh
     rt = rib_t
 
-    area = 2 * (B * fh)
+    area = 2 * (L * fh)
     # Seitenwände
     area += 2 * (rt * wh)
     # Innere Rippen
-    inner_spacing = (B - 2 * rt) / (n_ribs + 1)
+    inner_spacing = (L - 2 * rt) / (n_ribs + 1)
     area += n_ribs * (rt * wh)
 
     svg = svg_header("Gitter mit Rippen")
-    svg += rect(0, 0, B, fh)           # oben
-    svg += rect(0, H - fh, B, fh)     # unten
+    svg += rect(0, 0, L, fh)           # oben
+    svg += rect(0, H - fh, L, fh)     # unten
     svg += rect(0, fh, rt, wh)        # links
-    svg += rect(B - rt, fh, rt, wh)   # rechts
+    svg += rect(L - rt, fh, rt, wh)   # rechts
     for i in range(n_ribs):
         x = rt + (i + 1) * inner_spacing - rt / 2
         svg += rect(x, fh, rt, wh)
@@ -164,13 +164,13 @@ def gen_double_t(flange_h=4.0, web_t=8.0):
     fh = flange_h
     wt = web_t
     wh = H - 2 * fh
-    wx = (B - wt) / 2
-    area = 2 * (B * fh) + wt * wh
+    wx = (L - wt) / 2
+    area = 2 * (L * fh) + wt * wh
 
     svg = svg_header("Doppel-T-Traeger")
-    svg += rect(0, 0, B, fh)
+    svg += rect(0, 0, L, fh)
     svg += rect(wx, fh, wt, wh)
-    svg += rect(0, H - fh, B, fh)
+    svg += rect(0, H - fh, L, fh)
     svg += svg_footer()
     with open(f"{OUTPUT_DIR}/{name}.svg", "w") as f:
         f.write(svg)
@@ -185,11 +185,11 @@ def gen_honeycomb(n_cells=4, wall_t=2.0, flange_h=2.5):
     fh = flange_h
     wh = H - 2 * fh
     n = n_cells
-    cell_w = (B) / n
+    cell_w = (L) / n
 
     svg = svg_header("Honigwaben-Gitter")
-    svg += rect(0, 0, B, fh)
-    svg += rect(0, H - fh, B, fh)
+    svg += rect(0, 0, L, fh)
+    svg += rect(0, H - fh, L, fh)
 
     # Diagonale Streben (X-Muster in jedem Zell-Abschnitt)
     for i in range(n):
@@ -207,7 +207,7 @@ def gen_honeycomb(n_cells=4, wall_t=2.0, flange_h=2.5):
     with open(f"{OUTPUT_DIR}/{name}.svg", "w") as f:
         f.write(svg)
 
-    area_approx = 2 * (B * fh) + n * 2 * (wall_t * np.sqrt((B/n)**2 + wh**2))
+    area_approx = 2 * (L * fh) + n * 2 * (wall_t * np.sqrt((L/n)**2 + wh**2))
     print(f"[{name}] Materialanteil (ca.): {material_ratio(area_approx)*100:.1f}%  Fläche: {area_approx:.1f} mm²")
 
 
@@ -222,15 +222,15 @@ def gen_arch(flange_h=2.5, arch_t=2.5, n_hangers=5):
     n_pts = 40
     angle = np.linspace(np.pi, 0, n_pts)
     # Bogen sitzt unter der Brücke, Radius so dass er exakt H hoch ist
-    r = (B**2 / 8 + H**2 / 2) / (2 * (H - fh))  # Kreisbogen-Radius
-    cx = B / 2
+    r = (L**2 / 8 + H**2 / 2) / (2 * (H - fh))  # Kreisbogen-Radius
+    cx = L / 2
     cy_arc = H - fh - r  # Mittelpunkt des Kreises (kann negativ sein = über dem Querschnitt)
 
     # Oberer Flansch
-    area = B * fh
+    area = L * fh
 
     svg = svg_header("Bogenprofil")
-    svg += rect(0, 0, B, fh)  # oberer Flansch
+    svg += rect(0, 0, L, fh)  # oberer Flansch
 
     # Unterer Bogen als dicke Linie approximiert
     arc_inner = []
@@ -247,13 +247,13 @@ def gen_arch(flange_h=2.5, arch_t=2.5, n_hangers=5):
 
     all_pts = arc_inner + arc_outer
     # Clip to [0, B] x [0, H]
-    all_pts_clipped = [(max(0, min(B, x)), max(0, min(H, y))) for x, y in all_pts]
+    all_pts_clipped = [(max(0, min(L, x)), max(0, min(H, y))) for x, y in all_pts]
     svg += poly(all_pts_clipped)
 
     # Hänger (vertical bars)
     hanger_w = 1.5
     for i in range(n_hangers):
-        x = B / (n_hangers + 1) * (i + 1)
+        x = L / (n_hangers + 1) * (i + 1)
         # y-Koordinate des Bogens an Position x
         dx = x - cx
         if abs(dx) <= r:
@@ -274,7 +274,7 @@ def gen_arch(flange_h=2.5, arch_t=2.5, n_hangers=5):
 # Alle generieren
 # ============================================================
 if __name__ == "__main__":
-    print(f"Brückenparameter: B={B}mm, H={H}mm, L={L}mm")
+    print(f"Brückenparameter: B={L}mm, H={H}mm, L={L}mm")
     print(f"Grenzlast: 3kg = {3*9.81:.1f}N, max. Durchbiegung: 3mm")
     print(f"SVG Auflösung: {SVG_W}x{SVG_H}px\n")
     print("Generiere Profile...")
