@@ -38,7 +38,7 @@ def run(svg_path, nx=200, ny=100, plots=True, save_path=None):
     nu    = 0.36
     E_air = E_mat * 1e-6
 
-    F = 3.0 * 9.81
+    F = 5.0 * 9.81
 
     mask = svg_to_mask(svg_path, nx, ny)
     mat_ratio = mask.mean()
@@ -133,7 +133,7 @@ def run(svg_path, nx=200, ny=100, plots=True, save_path=None):
     n_load  = max(2, nx // 5)
     i0      = nx//2 - n_load//2
     i1      = i0 + n_load
-    f_body  = F / (n_load * hx * hy)
+    f_body  = -F / (n_load * hx * hy)
     for i in range(i0, i1):
         rhs[idx(1, i, ny-1)] += f_body
 
@@ -149,7 +149,7 @@ def run(svg_path, nx=200, ny=100, plots=True, save_path=None):
     v_max = abs(v[:, nx//2].min())
     print(f"  Max. Durchbiegung: {v_max*1e3:.4f} mm")
 
-    b_depth    = 40e-3
+    b_depth    = 50e-3
     I_full     = b_depth * H**3 / 12
     delta_beam = F * L**3 / (192 * E_mat * I_full)
     print(f"  Balkentheorie (Vollrechteck): {delta_beam*1e3:.4f} mm")
