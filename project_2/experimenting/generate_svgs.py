@@ -3,9 +3,8 @@ Brücken-Querschnitt SVG Generator
 ===================================
 Erzeugt verschiedene Querschnittsprofile als SVG-Dateien.
 Die Brücke ist:
-  - Länge: 200mm (frei wählbar)
-  - Breite/Höhe des Querschnitts: B=40mm, H=20mm (fix vom Professor)
-  - Belastung: 3kg in der Mitte
+  - Länge & Höhe des Querschnitts: L = 300mm, H = 15mm (fix vom Professor)
+  - Belastung: 5kg in der Mitte
   - Maximale Durchbiegung: 3mm
 
 Die SVGs kodieren den Querschnitt als schwarz=Material, weiß=Leer.
@@ -15,13 +14,12 @@ import numpy as np
 import os
 
 # === Brückenparameter (müssen mit Simulation übereinstimmen) ===
-L = 50.0    # Breite des Querschnitts [mm]
-H = 15.0    # Höhe des Querschnitts [mm]
+H = 15.0    # Höhe der Brücke [mm]
 L = 300.0   # Länge der Brücke [mm]
 
 # === SVG Auflösung ===
 SVG_W = 300   # Pixel
-SVG_H = 15   # Pixel # hier die werte auf die im arbeitsauftrag geändert
+SVG_H = 15   # Pixel 
 scale_x = SVG_W / L # geändert von B zu L 
 scale_y = SVG_H / H
 
@@ -35,7 +33,7 @@ def svg_header(name):
         f'width="{SVG_W}" height="{SVG_H}" '
         f'viewBox="0 0 {SVG_W} {SVG_H}">\n'
         f'  <!-- {name} -->\n'
-        f'  <!-- B={L}mm H={H}mm L={L}mm -->\n'
+        f'  <!-- H={H}mm L={L}mm -->\n'
         f'  <rect width="{SVG_W}" height="{SVG_H}" fill="white"/>\n'
     )
 
