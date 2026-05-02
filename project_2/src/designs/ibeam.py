@@ -6,9 +6,12 @@ from core.parameter import IntParameter, FloatParameter
 
 class IBeamDesign(Design):
 
+    def __init__(self):
+        self.name = "I-Beam"
+
     def parameter_space(self):
         return [
-            IntParameter("num_beams", 1, 20),
+            IntParameter("num_beams", 2, 50),
             FloatParameter("beam_thickness", config.MIN_FEATURE_SIZE, 3.0),
             FloatParameter("plate_thickness", config.MIN_FEATURE_SIZE, 3.0),
         ]
@@ -57,10 +60,11 @@ class IBeamDesign(Design):
         ))
 
         # vertical beams
-        spacing = L / (n + 1)
+        spacing = (L - t_b) / (n - 1)
+        start_x = 0
 
         for i in range(n):
-            x_pos = (i + 1) * spacing - t_b / 2
+            x_pos = start_x + i * spacing
 
             shapes.append(Rectangle(
                 x=x_pos,

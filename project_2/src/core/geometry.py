@@ -1,3 +1,5 @@
+import config
+
 
 class Rectangle:
     def __init__(self, x, y, width, height):
@@ -44,4 +46,12 @@ class Geometry:
             x += resolution
 
         return area
+
+    def estimate_weight_grams(self):
+        """
+        Cross-section area (mm²) × extrusion depth (mm) × PLA density (g/mm³).
+        """
+        area = self.approximate_area(resolution=0.5)
+        volume = area * config.BRIDGE_DEPTH # mm^3
+        return volume * config.PLA_DENSITY # grams
 

@@ -3,8 +3,15 @@ from core.parameter import Parameter
 
 
 class Design:
+
+    def __init__(self):
+        self.name: str = "no name"
+
     def parameter_space(self) -> List(Parameter):
         raise NotImplementedError
+
+    def default_parameters(self) -> Dict[str, float]:
+        return {p.name: (p.low + p.high) / 2 for p in self.parameter_space()}
 
     def sample_parameters(self) -> Dict[str, float]:
         params_list = self.parameter_space()

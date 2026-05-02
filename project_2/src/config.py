@@ -7,5 +7,7 @@ LOAD_FORCE = 5.0 * 9.81  # 5kg in Newton
 
 MAX_DEFLECTION = 3.0  # mm
 
+PLA_DENSITY = 1.24e-3  # g/mm³
+BRIDGE_DEPTH = 30.0  # TODO: ask, what this value will be
 
 # TODO: add material-specific values for PLA
