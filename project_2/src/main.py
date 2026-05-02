@@ -1,25 +1,13 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
+
 from designs.ibeam import IBeamDesign
-from export.svg_exporter import export_svg
+from gui import app
 
-
-def main():
-    design = IBeamDesign()
-
-    params = design.sample_parameters()
-    print("Sampled parameters:", params)
-
-    geometry = design.build_geometry(params)
-
-    if geometry is None:
-        print("Invalid geometry")
-        return
-
-    area = geometry.approximate_area()
-    print("Approx area:", area)
-
-    export_svg(geometry, "output.svg")
-    print("SVG exported to output.svg")
-
+DESIGNS = [
+    IBeamDesign(),
+]
 
 if __name__ == "__main__":
-    main()
+    app.run(DESIGNS)
