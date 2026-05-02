@@ -10,10 +10,10 @@ class Design:
     def parameter_space(self) -> List(Parameter):
         raise NotImplementedError
 
-    def default_parameters(self) -> Dict[str, float]:
-        return {p.name: (p.low + p.high) / 2 for p in self.parameter_space()}
+    def default_parameters(self) -> Dict[str, any]:
+        return {p.name: p.get_default() for p in self.parameter_space()}
 
-    def sample_parameters(self) -> Dict[str, float]:
+    def sample_parameters(self) -> Dict[str, any]:
         params_list = self.parameter_space()
 
         for _ in range(100): # max. 100 tries
