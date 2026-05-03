@@ -7,6 +7,7 @@ import dearpygui.dearpygui as dpg
 import config
 from core.parameter import IntParameter
 from gui.bridge_canvas import render_geometry
+from export.svg_exporter import export_svg
 
 CANVAS_W = 1200
 CANVAS_H = 150
@@ -90,12 +91,7 @@ def _build_actions():
             callback=lambda: _set_status("Analysis not yet implemented", (160, 160, 180)),
         )
         dpg.add_spacer(height=6)
-        dpg.add_button(
-            label="Export SVG",
-            width=160, height=36,
-            # TODO: call svg_exporter with current geometry
-            callback=lambda: _set_status("SVG export not yet implemented", (160, 160, 180)),
-        )
+        dpg.add_button(label="Export SVG", width=160, height=36, callback=_on_export_svg)
         dpg.add_spacer(height=6)
         dpg.add_button(label="Randomise", width=160, height=36, callback=_randomise)
 
@@ -147,6 +143,17 @@ def _randomise():
         _s.dirty = True
     except ValueError:
         _set_status("Could not randomise", (255, 180, 0))
+
+
+def _on_export_svg():
+    if _s.design is None:
+        return
+    if not _s.design.validate(_s.params):
+        _set_status("Cannot export — invalid parameters", (255, 180, 0))
+        return
+    geometry = _s.design.build_geometry(_s.params)
+    path = export_svg(geometry, _s.design.name)
+    _set_status(f"Saved: {path}", (100, 220, 100))
 
 
 def _redraw():
