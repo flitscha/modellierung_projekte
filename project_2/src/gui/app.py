@@ -26,7 +26,7 @@ def run(designs: list):
 
     with dpg.window(tag="main_window", no_title_bar=True, no_move=True,
                     no_resize=True, no_close=True):
-        dpg.add_text("🌉  Bridge Design Tool", color=(200, 220, 255))
+        dpg.add_text("Bridge Design Tool", color=(200, 220, 255))
         dpg.add_separator()
         dpg.add_spacer(height=4)
 
@@ -38,7 +38,7 @@ def run(designs: list):
     dpg.set_primary_window("main_window", True)
     dpg.show_viewport()
 
-    # Manual render loop — lets explorer.tick() run every frame in main thread
+    # Manual render loop - lets explorer.tick() run every frame in main thread
     while dpg.is_dearpygui_running():
         explorer.tick()
         dpg.render_dearpygui_frame()
@@ -64,3 +64,4 @@ def _apply_theme():
             dpg.add_theme_style(dpg.mvStyleVar_TabRounding, 4)
             dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 6)
     dpg.bind_theme(global_theme)
+

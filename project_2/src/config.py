@@ -1,5 +1,6 @@
 BRIDGE_LENGTH = 300.0  # 30 cm
 BRIDGE_HEIGHT = 15.0  # 15 mm
+# TODO: this should be the maximum height. The bridge is allowed to be thinner.
 
 MIN_FEATURE_SIZE = 0.4  # mm
 
