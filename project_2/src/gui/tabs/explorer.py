@@ -84,12 +84,7 @@ def _build_actions():
         dpg.add_text("Actions", color=(200, 200, 200))
         dpg.add_separator()
         dpg.add_spacer(height=6)
-        dpg.add_button(
-            label="Analyse",
-            width=160, height=36,
-            # TODO: call function to analyze the current geometry
-            callback=lambda: _set_status("Analysis not yet implemented", (160, 160, 180)),
-        )
+        dpg.add_button(label="Analyse", width=160, height=36, callback=_on_analyse)
         dpg.add_spacer(height=6)
         dpg.add_button(label="Export SVG", width=160, height=36, callback=_on_export_svg)
         dpg.add_spacer(height=6)
@@ -143,6 +138,18 @@ def _randomise():
         _s.dirty = True
     except ValueError:
         _set_status("Could not randomise", (255, 180, 0))
+
+
+def _on_analyse():
+    if _s.design is None:
+        return
+    if not _s.design.validate(_s.params):
+        _set_status("Cannot analyse — invalid parameters", (255, 180, 0))
+        return
+    # Import here to avoid circular imports at module load time
+    from gui.tabs import analysis
+    geometry = _s.design.build_geometry(_s.params)
+    analysis.load_geometry(geometry)
 
 
 def _on_export_svg():

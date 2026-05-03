@@ -1,15 +1,14 @@
 """
 Bridge Design Tool — main window.
 
-Tabs
-----
-  Design Explorer  – interactive parameter sliders + live preview  (Phase 1)
-  Analysis         – FEM deflection & stress simulation            (Phase 2)
-  Optimizer        – weight minimisation under deflection budget   (Phase 3)
+Tabs:
+    Design Explorer – interactive parameter sliders + live preview
+    Analysis        – deflection & stress simulation
+    Optimizer       – weight minimisation under deflection budget
 """
 import dearpygui.dearpygui as dpg
 
-from gui.tabs import explorer
+from gui.tabs import explorer, analysis
 
 
 def run(designs: list):
@@ -32,7 +31,7 @@ def run(designs: list):
 
         with dpg.tab_bar(tag="main_tabs"):
             explorer.build("main_tabs", designs)
-            #analysis.build("main_tabs")
+            analysis.build("main_tabs")
             #optimizer.build("main_tabs")
 
     dpg.set_primary_window("main_window", True)
@@ -41,6 +40,7 @@ def run(designs: list):
     # Manual render loop - lets explorer.tick() run every frame in main thread
     while dpg.is_dearpygui_running():
         explorer.tick()
+        analysis.tick()
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()
