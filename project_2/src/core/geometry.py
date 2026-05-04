@@ -15,6 +15,58 @@ class Rectangle:
         )
 
 
+
+class Parallelogram:
+    """
+    A parallelogram defined by its bottom-left corner, dimensions, and a
+    horizontal skew offset applied to the top edge.
+ 
+    Vertices (counter-clockwise from bottom-left):
+        BL = (x,          y)
+        BR = (x + width,  y)
+        TR = (x + width + skew_x,  y + height)
+        TL = (x + skew_x,          y + height)
+ 
+    A positive skew_x leans the shape to the right (/) diagonal.
+    A negative skew_x leans it to the left (\) diagonal.
+ 
+    contains() uses a fast point-in-parallelogram test via local
+    (u, v) coordinates so rasterisation stays exact.
+    """
+ 
+    def __init__(self, x, y, width, height, skew_x=0.0):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.skew_x = skew_x
+ 
+    def contains(self, px, py):
+        # Translate so BL is the origin
+        lx = px - self.x
+        ly = py - self.y
+ 
+        # Local basis:
+        #   e1 = (width, 0)          → horizontal bottom edge
+        #   e2 = (skew_x, height)    → left side edge
+        # Solve [e1 | e2] * [u; v] = [lx; ly]
+        # e1 x e2 = width * height  (det, always > 0 if width/height > 0)
+        det = self.width * self.height
+        if det == 0:
+            return False
+ 
+        v = (lx * 0 - ly * self.width) / (-det)   # simplified below
+        # Full 2-D Cramer:
+        #   u = (lx * height - ly * skew_x) / det
+        #   v = (lx * 0      - ly * width ) / (-det)  →  v = ly / height
+        u = (lx * self.height - ly * self.skew_x) / det
+        v = ly / self.height
+ 
+        return 0.0 <= u <= 1.0 and 0.0 <= v <= 1.0
+    
+
+
+    
 class Geometry:
     def __init__(self, shapes):
         self.shapes = shapes

@@ -5,6 +5,7 @@ Output folder is created automatically if it doesn't exist.
 Files are named  <design_name>_001.svg, _002.svg
 """
 import os
+from core.geometry import Parallelogram
 
 OUTPUT_DIR = "exports"
 
@@ -33,16 +34,31 @@ def _write_svg(geometry, path: str):
     min_x, min_y, max_x, max_y = geometry.bounding_box()
     width  = max_x - min_x
     height = max_y - min_y
-
+ 
     with open(path, "w") as f:
         f.write(f'<svg xmlns="http://www.w3.org/2000/svg" ')
         f.write(f'width="{width}mm" height="{height}mm" ')
         f.write(f'viewBox="{min_x} {min_y} {width} {height}">\n')
+ 
         for shape in geometry.shapes:
-            f.write(
-                f'  <rect x="{shape.x}" y="{shape.y}" '
-                f'width="{shape.width}" height="{shape.height}" '
-                f'style="fill:black;" />\n'
-            )
+            if isinstance(shape, Parallelogram):
+                # Emit a <polygon> with the four corners
+                x, y, w, h, sx = (shape.x, shape.y,
+                                   shape.width, shape.height, shape.skew_x)
+                pts = (f"{x},{y+h} "          # top-left   (SVG y-down)
+                       f"{x+w},{y+h} "        # top-right
+                       f"{x+w+sx},{y} "       # bottom-right
+                       f"{x+sx},{y}")         # bottom-left
+                f.write(
+                    f'  <polygon points="{pts}" style="fill:black;" />\n'
+                )
+            else:
+                # Rectangle
+                f.write(
+                    f'  <rect x="{shape.x}" y="{shape.y}" '
+                    f'width="{shape.width}" height="{shape.height}" '
+                    f'style="fill:black;" />\n'
+                )
+ 
         f.write('</svg>\n')
-
+ 

@@ -3,7 +3,7 @@ Converts a Geometry object into a flat RGBA byte array that can be
 uploaded as a DearPyGui dynamic texture.
 """
 import numpy as np
-from core.geometry import Geometry
+from core.geometry import Geometry, Parallelogram
 
 # Colors (RGBA)
 COLOR_BRIDGE = (80, 160, 220, 255)
@@ -46,12 +46,26 @@ def render_geometry(
     gy = (canvas_h - 1 - py_grid - offset_y) / scale + min_y
 
     mask = np.zeros((canvas_h, canvas_w), dtype=bool)
-    for shape in geometry.shapes:
-        mask |= (
-            (gx >= shape.x) & (gx <= shape.x + shape.width) &
-            (gy >= shape.y) & (gy <= shape.y + shape.height)
-        )
 
+    for shape in geometry.shapes:
+        if isinstance(shape, Parallelogram):
+            # Point-in-parallelogram via local (u, v) coords
+            det = shape.width * shape.height
+            if det == 0:
+                continue
+            lx = gx - shape.x
+            ly = gy - shape.y
+            u = (lx * shape.height - ly * shape.skew_x) / det
+            v = ly / shape.height
+            mask |= (u >= 0) & (u <= 1) & (v >= 0) & (v <= 1)
+        else:
+            # Rectangle
+            mask |= (
+                (gx >= shape.x) & (gx <= shape.x + shape.width) &
+                (gy >= shape.y) & (gy <= shape.y + shape.height)
+            )
+ 
     rgba = np.where(mask[..., None], COLOR_BRIDGE, COLOR_BG) / 255.0
     return rgba.flatten().tolist()
+ 
 

@@ -7,7 +7,7 @@ class Design:
     def __init__(self):
         self.name: str = "no name"
 
-    def parameter_space(self) -> List(Parameter):
+    def parameter_space(self):
         raise NotImplementedError
 
     def default_parameters(self) -> Dict[str, any]:
