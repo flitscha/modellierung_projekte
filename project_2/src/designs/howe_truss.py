@@ -15,6 +15,7 @@ chord_thickness : float – height of top and bottom horizontal plate  [mm]
 post_thickness  : float – width of vertical posts                    [mm]
 brace_thickness : float – width of diagonal braces                   [mm]
 """
+
 import config
 from core.design import Design
 from core.geometry import Geometry, Rectangle, Parallelogram
@@ -59,7 +60,7 @@ class HoweTrussDesign(Design):
         tb = params["brace_thickness"]
 
         inner_h = H - 2 * tc
-        panel_w = L / n
+        panel_w = (L - tp) / n
 
         shapes = []
 
@@ -71,8 +72,7 @@ class HoweTrussDesign(Design):
 
         # ── Verticals (posts) at every panel boundary ──────────────
         for i in range(n + 1):
-            x_post = i * panel_w - tp / 2
-            x_post = max(0.0, min(x_post, L - tp))
+            x_post = i * panel_w
             shapes.append(Rectangle(
                 x=x_post, y=tc, width=tp, height=inner_h
             ))
@@ -84,15 +84,15 @@ class HoweTrussDesign(Design):
             x_right = x_left + panel_w
 
             if i < mid:
-                # Left half: diagonal goes from bottom-left to top-right (/)
-                # skew_x < 0 → top edge shifted left
-                skew = -panel_w
-                bx   = x_right - tb
-            else:
-                # Right half: diagonal goes from bottom-right to top-left (\)
+                # Left half: diagonal goes from bottom-left to top-right (\)
                 # skew_x > 0 → top edge shifted right
-                skew = panel_w
+                skew = panel_w - tb + tp
                 bx   = x_left
+            else:
+                # Right half: diagonal goes from bottom-right to top-left (/)
+                # skew_x < 0 → top edge shifted left
+                skew = -panel_w + tb - tp
+                bx   = x_right + tp - tb
 
             shapes.append(Parallelogram(
                 x=bx,

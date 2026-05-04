@@ -75,10 +75,27 @@ class Geometry:
         return any(shape.contains(x, y) for shape in self.shapes)
 
     def bounding_box(self):
-        min_x = min(s.x for s in self.shapes)
-        min_y = min(s.y for s in self.shapes)
-        max_x = max(s.x + s.width for s in self.shapes)
-        max_y = max(s.y + s.height for s in self.shapes)
+        min_x = float('inf')
+        min_y = float('inf')
+        max_x = float('-inf')
+        max_y = float('-inf')
+ 
+        for s in self.shapes:
+            if isinstance(s, Parallelogram):
+                # All four corners
+                corners_x = [s.x, s.x + s.width,
+                              s.x + s.skew_x, s.x + s.width + s.skew_x]
+                corners_y = [s.y, s.y, s.y + s.height, s.y + s.height]
+                min_x = min(min_x, *corners_x)
+                max_x = max(max_x, *corners_x)
+                min_y = min(min_y, *corners_y)
+                max_y = max(max_y, *corners_y)
+            else:  # Rectangle
+                min_x = min(min_x, s.x)
+                min_y = min(min_y, s.y)
+                max_x = max(max_x, s.x + s.width)
+                max_y = max(max_y, s.y + s.height)
+ 
         return min_x, min_y, max_x, max_y
 
     def approximate_area(self, resolution=1.0):
