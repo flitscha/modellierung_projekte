@@ -1,5 +1,4 @@
-from typing import List, Dict
-from core.parameter import Parameter
+from typing import Dict
 
 
 class Design:
@@ -25,4 +24,7 @@ class Design:
         raise ValueError("Could not find valid parameters")
 
     def build_geometry(self, params):
+        raise NotImplementedError
+
+    def build_truss(self, params):
         raise NotImplementedError

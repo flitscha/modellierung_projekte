@@ -6,7 +6,7 @@ import dearpygui.dearpygui as dpg
 
 import config
 from core.parameter import IntParameter
-from gui.bridge_canvas import render_geometry
+from gui.bridge_canvas import render_geometry, render_truss
 from export.svg_exporter import export_svg
 
 CANVAS_W = 1200
@@ -19,6 +19,7 @@ class _State:
         self.params: dict = {}
         self.texture_tag = None
         self.dirty = False
+        self.mode = "geometry"
 
 
 _s = _State()
@@ -61,6 +62,14 @@ def _build_top_bar(designs, designs_by_name):
         dpg.add_spacer(width=30)
         dpg.add_text("Status:")
         dpg.add_text("", tag="explorer_status")
+        dpg.add_spacer(width=20)
+        dpg.add_text("View:")
+        dpg.add_combo(
+            items=["geometry", "truss"],
+            default_value="geometry",
+            width=120,
+            callback=lambda s, v: _set_mode(v),
+        )
 
 
 def _build_canvas():
@@ -99,6 +108,9 @@ def _select_design(design):
     _rebuild_sliders(design)
     _s.dirty = True
 
+def _set_mode(mode):
+    _s.mode = mode
+    _s.dirty = True
 
 def _rebuild_sliders(design):
     dpg.delete_item("slider_group", children_only=True)
@@ -169,8 +181,19 @@ def _redraw():
     if not _s.design.validate(_s.params):
         _set_status("Invalid parameters", (255, 180, 0))
         return
-    geometry = _s.design.build_geometry(_s.params)
-    pixel_data = render_geometry(geometry, CANVAS_W, CANVAS_H)
+
+    if _s.mode == "geometry":
+        geometry = _s.design.build_geometry(_s.params)
+        pixel_data = render_geometry(geometry, CANVAS_W, CANVAS_H)
+
+    else:
+        try:
+            truss = _s.design.build_truss(_s.params)
+            pixel_data = render_truss(truss, CANVAS_W, CANVAS_H)
+        except NotImplementedError:
+            _set_status("truss-graph is not implemented for the selected bridge-design", (255, 180, 0))
+            return
+
     dpg.set_value(_s.texture_tag, pixel_data)
     _set_status("Valid", (100, 220, 100))
 
