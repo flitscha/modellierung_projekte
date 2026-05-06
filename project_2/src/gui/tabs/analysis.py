@@ -1,16 +1,12 @@
-"""
-Displays a bridge geometry and runs structural analysis on it.
-
-Two ways to load a design:
-    1. Via the Explorer tab -> "Analyse" button (geometry passed directly)
-    2. Via the SVG dropdown (SVG parsed back to Geometry)
-"""
 import os
+import threading
 import dearpygui.dearpygui as dpg
+import numpy as np
 
 import config
 from core.geometry import Geometry
 from simulations.solve_truss import solve_truss
+from simulations.solve_fem import solve_fem_adaptive, FEMResult
 from gui.bridge_canvas import render_geometry
 from export.svg_parser import parse_svg
 from export.svg_exporter import OUTPUT_DIR
@@ -18,59 +14,91 @@ from export.svg_exporter import OUTPUT_DIR
 CANVAS_W = 1200
 CANVAS_H = 150
 
+# Heatmap image dimensions (for the FEM field plots)
+HEATMAP_W = 600
+HEATMAP_H = 200
+
 
 class _State:
     def __init__(self):
         self.geometry: Geometry | None = None
         self.truss = None
-        self.texture_tag = None
-        self.dirty = False
+        self.fem_result: FEMResult | None = None
+
+        self.texture_geometry = None
+        self.texture_disp_y = None
+        self.texture_s11 = None
+        self.texture_s22 = None
+        self.texture_s12 = None
+        self.texture_vonmises = None
+
+        self.dirty_geometry = False
+        self.fem_running = False
+        self.fem_dirty = False # new FEM result waiting to be drawn
 
 
 _s = _State()
 
 
+# ---------------------------------------
+# Public API (called from Explorer tab and main app)
+# ---------------------------------------
 def build(parent_tag: str):
     """Build the Analysis tab and register it under parent_tag."""
-    _s.texture_tag = _create_texture()
+    _s.texture_geometry = _create_texture(CANVAS_W, CANVAS_H)
+    _s.texture_disp_y = _create_texture(HEATMAP_W, HEATMAP_H)
+    _s.texture_s11 = _create_texture(HEATMAP_W, HEATMAP_H)
+    _s.texture_s22 = _create_texture(HEATMAP_W, HEATMAP_H)
+    _s.texture_s12 = _create_texture(HEATMAP_W, HEATMAP_H)
+    _s.texture_vonmises = _create_texture(HEATMAP_W, HEATMAP_H)
 
     with dpg.tab(label="Analysis", parent=parent_tag, tag="tab_analysis"):
         dpg.add_spacer(height=6)
         _build_top_bar()
         dpg.add_spacer(height=10)
-        _build_canvas()
+        _build_geometry_canvas()
         dpg.add_spacer(height=14)
-        _build_results()
+        _build_truss_results()
+        dpg.add_separator()
+        dpg.add_spacer(height=10)
+        _build_fem_section()
 
 
 def tick():
-    """Called every frame from the main loop. Redraws only when dirty."""
+    """Called every frame from the main loop."""
     _sync_canvas_width()
-    if _s.dirty:
-        _s.dirty = False
-        _redraw()
+    if _s.dirty_geometry:
+        _s.dirty_geometry = False
+        _redraw_geometry()
+        _run_truss_solver()
+    if _s.fem_dirty:
+        _s.fem_dirty = False
+        _redraw_fem_heatmaps()
 
 
 def load_geometry(geometry: Geometry):
-    """
-    Called by the Explorer tab when the user clicks 'Analyse'.
-    Switches focus to this tab and displays the geometry immediately.
-    """
+    """Called by the Explorer tab (geometry only, no truss)."""
     _s.geometry = geometry
-    _s.dirty = True
+    _s.truss = None
+    _s.fem_result = None
+    _s.dirty_geometry = True
     _set_status("Loaded from Explorer", (100, 220, 100))
     dpg.set_value("main_tabs", "tab_analysis")
 
 
-def load_design(geometry, truss):
+def load_design(geometry: Geometry, truss):
+    """Called by the Explorer tab (geometry + truss)."""
     _s.geometry = geometry
-    _s.truss = truss
-    _s.dirty = True
+    _s.truss    = truss
+    _s.fem_result = None
+    _s.dirty_geometry = True
     _set_status("Loaded from Explorer", (100, 220, 100))
     dpg.set_value("main_tabs", "tab_analysis")
 
 
-# --------------- Layout Builders -------------------
+# ---------------------------------------
+# Layout builders
+# ---------------------------------------
 def _build_top_bar():
     with dpg.group(horizontal=True):
         dpg.add_text("Load SVG:")
@@ -86,8 +114,8 @@ def _build_top_bar():
         dpg.add_text("No design loaded", tag="analysis_status", color=(160, 160, 180))
 
 
-def _build_canvas():
-    dpg.add_image(_s.texture_tag, tag="analysis_image", width=CANVAS_W, height=CANVAS_H)
+def _build_geometry_canvas():
+    dpg.add_image(_s.texture_geometry, tag="analysis_image", width=CANVAS_W, height=CANVAS_H)
     with dpg.group(horizontal=True):
         dpg.add_spacer(width=8)
         dpg.add_text(f"length: {config.BRIDGE_LENGTH:.0f} mm", color=(160, 160, 180))
@@ -95,120 +123,287 @@ def _build_canvas():
         dpg.add_text(f"height: {config.BRIDGE_HEIGHT:.0f} mm", color=(160, 160, 180))
 
 
-def _build_results():
-    """Placeholder panels for results."""
-    dpg.add_text("Results", color=(200, 200, 200))
+def _build_truss_results():
+    dpg.add_text("Truss Solver  (fast, bar-force model)", color=(200, 200, 200))
+    dpg.add_separator()
+    dpg.add_spacer(height=6)
+    with dpg.group(horizontal=True):
+        _result_card("Weight", "-- g", "truss_weight")
+        dpg.add_spacer(width=40)
+        _result_card("Max Deflection", "-- mm", "truss_deflection")
+        dpg.add_spacer(width=40)
+        _result_card("Max Bar Force", "-- N", "truss_max_force")
+        dpg.add_spacer(width=40)
+        _result_card("Max Bar Stress", "-- MPa","truss_max_stress")
+
+
+def _build_fem_section():
+    dpg.add_text("FEM Solver  (plane-stress, differential equations)", color=(200, 200, 200))
     dpg.add_separator()
     dpg.add_spacer(height=6)
 
     with dpg.group(horizontal=True):
-        _build_result_card("Weight", "-- g", "analysis_weight")
+        dpg.add_button(
+            label="Run FEM (adaptive resolution)",
+            width=260, height=36,
+            callback=_on_run_fem,
+        )
+        dpg.add_spacer(width=20)
+        dpg.add_text("", tag="fem_status", color=(160, 160, 180))
+
+    dpg.add_spacer(height=10)
+
+    with dpg.group(horizontal=True):
+        _result_card("FEM Max Deflection", "-- mm", "fem_deflection")
         dpg.add_spacer(width=40)
-        _build_result_card("Max Deflection", "-- mm", "analysis_deflection")
+        _result_card("FEM Max von Mises", "-- MPa", "fem_vonmises_max")
+        dpg.add_spacer(width=40)
+        _result_card("Convergence", "--", "fem_convergence")
 
     dpg.add_spacer(height=14)
 
-    # stress heatmap images will go here
-    dpg.add_text("Stress heatmaps - not implemented yet", color=(100, 100, 120))
+    # Six heatmap images in two rows
+    _heatmap_row(
+        [("Vertical displacement  v  [mm]", "heatmap_disp_y", _s.texture_disp_y),
+         ("Normal stress  sigma11  [MPa]", "heatmap_s11", _s.texture_s11),
+         ("Normal stress  sigma22 [MPa]", "heatmap_s22", _s.texture_s22)],
+    )
+    dpg.add_spacer(height=10)
+    _heatmap_row(
+        [("Shear stress  sigma12  [MPa]", "heatmap_s12", _s.texture_s12),
+         ("von Mises stress  [MPa]", "heatmap_vonmises", _s.texture_vonmises),
+         None],   # placeholder to keep layout symmetric
+    )
 
 
-def _build_result_card(label: str, placeholder: str, tag: str):
+def _heatmap_row(entries):
+    with dpg.group(horizontal=True):
+        for entry in entries:
+            if entry is None:
+                dpg.add_spacer(width=HEATMAP_W)
+                continue
+            label, tag, texture = entry
+            with dpg.group():
+                dpg.add_text(label, color=(160, 160, 180))
+                dpg.add_image(texture, tag=tag, width=HEATMAP_W, height=HEATMAP_H)
+            dpg.add_spacer(width=20)
+
+
+def _result_card(label: str, placeholder: str, tag: str):
     with dpg.group():
         dpg.add_text(label, color=(160, 160, 180))
         dpg.add_text(placeholder, tag=tag)
 
 
-# -------------------- Logic ------------------------
+# ---------------------------------------
+# Logic
+# ---------------------------------------
 def _on_svg_selected(sender, svg_filename):
     if not svg_filename:
         return
     path = os.path.join(OUTPUT_DIR, svg_filename)
     try:
         _s.geometry = parse_svg(path)
-        _s.dirty = True
+        _s.truss    = None
+        _s.fem_result = None
+        _s.dirty_geometry = True
         _set_status(f"Loaded: {svg_filename}", (100, 220, 100))
-    except Exception as e:
-        _set_status(f"Error: {e}", (255, 100, 100))
+    except Exception as exc:
+        _set_status(f"Error: {exc}", (255, 100, 100))
 
 
 def _refresh_svg_list():
-    svgs = _list_svgs()
-    dpg.configure_item("analysis_svg_combo", items=svgs)
+    dpg.configure_item("analysis_svg_combo", items=_list_svgs())
 
 
-def _redraw():
+def _on_run_fem():
     if _s.geometry is None:
+        _set_fem_status("No geometry loaded", (255, 180, 0))
+        return
+    if _s.fem_running:
+        _set_fem_status("Already running...", (255, 180, 0))
         return
 
-    # --- render geometry (for now) ---
+    _s.fem_running = True
+    _set_fem_status("Running... (this may take a few seconds)", (255, 200, 60))
+
+    thread = threading.Thread(target=_fem_worker, daemon=True)
+    thread.start()
+
+
+def _fem_worker():
+    """Runs in a background thread so the GUI stays responsive."""
+    try:
+        result, history = solve_fem_adaptive(
+            _s.geometry,
+            elastic_modulus_mpa=2500.0,
+            poisson_ratio=0.35,
+            point_load_newtons=5.0 * 9.81,
+        )
+        _s.fem_result = result
+
+        # Build convergence string  e.g. "20->30->45  delta=0.8 %"
+        if len(history) >= 2:
+            nx_steps = "->".join(str(h[0]) for h in history)
+            last_two = history[-2:]
+            rel = abs(last_two[1][2] - last_two[0][2]) / (abs(last_two[0][2]) + 1e-12) * 100
+            conv_str = f"{nx_steps}  delta={rel:.1f}%"
+        else:
+            conv_str = f"{history[0][0]}×{history[0][1]}"
+
+        dpg.set_value("fem_convergence", conv_str)
+        dpg.set_value("fem_deflection", f"{result.max_deflection_mm:.4f} mm")
+        dpg.set_value("fem_vonmises_max", f"{np.max(result.von_mises_stress):.2f} MPa")
+        _set_fem_status("Done", (100, 220, 100))
+
+        _s.fem_dirty = True   # signal main thread to redraw textures
+
+    except Exception as exc:
+        _set_fem_status(f"Error: {exc}", (255, 100, 100))
+    finally:
+        _s.fem_running = False
+
+
+# ---------------------------------------
+# Rendering helpers
+# ---------------------------------------
+def _redraw_geometry():
+    if _s.geometry is None:
+        return
     pixel_data = render_geometry(_s.geometry, CANVAS_W, CANVAS_H)
-    dpg.set_value(_s.texture_tag, pixel_data)
+    dpg.set_value(_s.texture_geometry, pixel_data)
 
-    # --- weight ---
     weight = _s.geometry.estimate_weight_grams()
-    dpg.set_value("analysis_weight", f"{weight:.1f} g")
+    dpg.set_value("truss_weight", f"{weight:.1f} g")
 
-    # --- solver ---
+
+def _run_truss_solver():
     if _s.truss is None:
-        dpg.set_value("analysis_deflection", "-- mm")
+        dpg.set_value("truss_deflection", "-- mm (no truss)")
+        dpg.set_value("truss_max_force", "-- N")
+        dpg.set_value("truss_max_stress", "-- MPa")
         return
 
     try:
         truss = _s.truss
-        n = len(truss.nodes)
+        bottom_nodes = [i for i, n in enumerate(truss.nodes) if n.y == 0]
 
-        # --- find middle bottom node ---
-        xs = [node.x for node in truss.nodes]
-        min_x, max_x = min(xs), max(xs)
-        mid_x = 0.5 * (min_x + max_x)
-
-        # choose closest bottom node
-        bottom_nodes = [i for i, node in enumerate(truss.nodes) if node.y == 0]
-        mid_node = min(bottom_nodes, key=lambda i: abs(truss.nodes[i].x - mid_x))
-
-        # --- forces ---
-        F = 5.0 * 9.81  # Newton
-        forces = {
-            mid_node: (0.0, -F)
-        }
-
-        # --- supports ---
-        left_node = min(bottom_nodes, key=lambda i: truss.nodes[i].x)
+        xs      = [truss.nodes[i].x for i in bottom_nodes]
+        mid_x   = 0.5 * (min(xs) + max(xs))
+        mid_node  = min(bottom_nodes, key=lambda i: abs(truss.nodes[i].x - mid_x))
+        left_node  = min(bottom_nodes, key=lambda i: truss.nodes[i].x)
         right_node = max(bottom_nodes, key=lambda i: truss.nodes[i].x)
 
+        F      = 5.0 * 9.81
+        forces = {mid_node: (0.0, -F)}
         fixed_dofs = [
-            (left_node, 0), (left_node, 1),   # fixed
-            (right_node, 1)                  # roller
+            (left_node, 0), (left_node, 1),
+            (right_node, 1),
         ]
 
-        # --- solve ---
-        displacements, _ = solve_truss(truss, forces, fixed_dofs, E=2500.0)
+        displacements, bar_forces = solve_truss(truss, forces, fixed_dofs, E=2500.0)
 
-        # --- max deflection (y) ---
-        max_defl = min(d[1] for d in displacements)  # negative value
-        max_defl_mm = abs(max_defl)
+        max_defl = max(abs(d[1]) for d in displacements)
+        dpg.set_value("truss_deflection", f"{max_defl:.4f} mm")
 
-        dpg.set_value("analysis_deflection", f"{max_defl_mm:.3f} mm")
+        if bar_forces is not None:
+            max_force = max(abs(f) for f in bar_forces)
+            dpg.set_value("truss_max_force", f"{max_force:.2f} N")
 
-        _set_status("Solved", (100, 220, 100))
+            # Stress = force / cross-section area
+            stresses = [abs(bar_forces[k]) / truss.edges[k].area
+                        for k in range(len(truss.edges))]
+            dpg.set_value("truss_max_stress", f"{max(stresses):.2f} MPa")
 
-    except Exception as e:
-        _set_status(f"Solver error: {e}", (255, 100, 100))
-        dpg.set_value("analysis_deflection", "-- mm")
+        _set_status("Truss solved ✓", (100, 220, 100))
 
-
-# ----------------- Helpers --------------------------
-def _list_svgs() -> list[str]:
-    """Return sorted list of SVG filenames from the exports folder."""
-    if not os.path.isdir(OUTPUT_DIR):
-        return []
-    return sorted(f for f in os.listdir(OUTPUT_DIR) if f.endswith(".svg"))
+    except Exception as exc:
+        _set_status(f"Truss error: {exc}", (255, 100, 100))
+        dpg.set_value("truss_deflection", "-- mm")
 
 
-def _create_texture() -> int:
-    blank = [0.12, 0.12, 0.16, 1.0] * (CANVAS_W * CANVAS_H)
+def _redraw_fem_heatmaps():
+    if _s.fem_result is None:
+        return
+    r = _s.fem_result
+
+    _upload_heatmap(_s.texture_disp_y, r.displacement_y, r.material_mask, diverging=True)
+    _upload_heatmap(_s.texture_s11, r.stress_11, r.material_mask, diverging=True)
+    _upload_heatmap(_s.texture_s22, r.stress_22, r.material_mask, diverging=True)
+    _upload_heatmap(_s.texture_s12, r.stress_12, r.material_mask, diverging=True)
+    _upload_heatmap(_s.texture_vonmises, r.von_mises_stress, r.material_mask, diverging=False)
+
+
+def _upload_heatmap(texture_tag, field: np.ndarray, mask: np.ndarray, diverging: bool):
+    """
+    Convert a 2-D numpy field (nx × ny) to a flat RGBA list and upload it to
+    a DearPyGui dynamic texture.
+
+    diverging=True  → blue-white-red colormap  (for signed quantities)
+    diverging=False → black-yellow-white        (for non-negative quantities)
+    """
+    nx, ny = field.shape
+
+    # Resize field to heatmap dimensions via simple nearest-neighbour
+    ix = np.round(np.linspace(0, nx - 1, HEATMAP_W)).astype(int)
+    iy = np.round(np.linspace(0, ny - 1, HEATMAP_H)).astype(int)
+    resampled = field[np.ix_(ix, iy)]          # (HEATMAP_W, HEATMAP_H)
+    mask_rs   = mask[np.ix_(ix, iy)]
+
+    vmax = np.max(np.abs(resampled[mask_rs])) if mask_rs.any() else 1.0
+    if vmax < 1e-12:
+        vmax = 1.0
+
+    pixels = []
+    for j in range(HEATMAP_H - 1, -1, -1):     # flip y: row 0 = bottom
+        for i in range(HEATMAP_W):
+            if not mask_rs[i, j]:
+                pixels += [0.08, 0.08, 0.10, 1.0]   # void = dark background
+                continue
+
+            t = float(resampled[i, j]) / vmax       # in [-1, 1] or [0, 1]
+
+            if diverging:
+                r, g, b = _colormap_diverging(t)
+            else:
+                r, g, b = _colormap_sequential(t)
+
+            pixels += [r, g, b, 1.0]
+
+    dpg.set_value(texture_tag, pixels)
+
+
+def _colormap_diverging(t: float):
+    """Blue (−1) → white (0) → red (+1)"""
+    t = max(-1.0, min(1.0, t))
+    if t < 0:
+        s = -t
+        return (1.0 - s, 1.0 - s, 1.0)
+    else:
+        return (1.0, 1.0 - t, 1.0 - t)
+
+
+def _colormap_sequential(t: float):
+    """Black (0) → deep blue → cyan → yellow → white (1)"""
+    t = max(0.0, min(1.0, t))
+    if t < 0.33:
+        s = t / 0.33
+        return (0.0, 0.0, s)
+    elif t < 0.66:
+        s = (t - 0.33) / 0.33
+        return (0.0, s, 1.0 - s * 0.5)
+    else:
+        s = (t - 0.66) / 0.34
+        return (s, 1.0, s)
+
+
+# ---------------------------------------
+# Utility
+# ---------------------------------------
+def _create_texture(w: int, h: int) -> int:
+    blank = [0.08, 0.08, 0.10, 1.0] * (w * h)
     with dpg.texture_registry():
-        return dpg.add_dynamic_texture(width=CANVAS_W, height=CANVAS_H, default_value=blank)
+        return dpg.add_dynamic_texture(width=w, height=h, default_value=blank)
 
 
 def _sync_canvas_width():
@@ -216,7 +411,20 @@ def _sync_canvas_width():
         dpg.configure_item("analysis_image", width=dpg.get_viewport_width() - 20)
 
 
+def _list_svgs() -> list[str]:
+    if not os.path.isdir(OUTPUT_DIR):
+        return []
+    return sorted(f for f in os.listdir(OUTPUT_DIR) if f.endswith(".svg"))
+
+
 def _set_status(msg: str, color: tuple):
-    dpg.set_value("analysis_status", msg)
-    dpg.configure_item("analysis_status", color=color)
+    if dpg.does_item_exist("analysis_status"):
+        dpg.set_value("analysis_status", msg)
+        dpg.configure_item("analysis_status", color=color)
+
+
+def _set_fem_status(msg: str, color: tuple):
+    if dpg.does_item_exist("fem_status"):
+        dpg.set_value("fem_status", msg)
+        dpg.configure_item("fem_status", color=color)
 
