@@ -2,6 +2,7 @@ import config
 from core.design import Design
 from core.geometry import Geometry, Rectangle
 from core.parameter import IntParameter, FloatParameter
+from core.truss import Truss, Node, Edge
 
 
 class IBeamDesign(Design):
@@ -75,3 +76,53 @@ class IBeamDesign(Design):
 
         return Geometry(shapes)
 
+
+    def build_truss(self, params):
+        H = config.BRIDGE_HEIGHT
+        L = config.BRIDGE_LENGTH
+
+        n   = params["num_beams"]
+        t_b = params["beam_thickness"]
+        t_p = params["plate_thickness"]
+
+        depth = config.BRIDGE_DEPTH
+
+        # Cross-sectional areas
+        A_plate = t_p * depth
+        A_web   = t_b * depth
+
+        nodes = []
+
+        spacing = (L - t_b) / (n - 1)
+
+        # bottom nodes
+        for i in range(n):
+            x = i * spacing
+            nodes.append(Node(x, 0.0))
+
+        # top nodes
+        for i in range(n):
+            x = i * spacing
+            nodes.append(Node(x, H))
+
+        def bottom(i):
+            return i
+
+        def top(i):
+            return i + n
+
+        edges = []
+
+        # bottom chord
+        for i in range(n - 1):
+            edges.append(Edge(bottom(i), bottom(i + 1), A_plate))
+
+        # top chord
+        for i in range(n - 1):
+            edges.append(Edge(top(i), top(i + 1), A_plate))
+
+        # vertical beams (webs)
+        for i in range(n):
+            edges.append(Edge(bottom(i), top(i), A_web))
+
+        return Truss(nodes, edges)
