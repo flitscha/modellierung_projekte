@@ -8,6 +8,7 @@ import config
 from core.parameter import IntParameter
 from gui.bridge_canvas import render_geometry, render_truss
 from export.svg_exporter import export_svg
+from simulations.solve_truss import solve_truss
 
 CANVAS_W = 1200
 CANVAS_H = 150
@@ -20,6 +21,7 @@ class _State:
         self.texture_tag = None
         self.dirty = False
         self.mode = "geometry"
+        self.solver_enabled = True # truss-solver
 
 
 _s = _State()
@@ -60,9 +62,6 @@ def _build_top_bar(designs, designs_by_name):
             callback=lambda s, v: _select_design(designs_by_name[v]),
         )
         dpg.add_spacer(width=30)
-        dpg.add_text("Status:")
-        dpg.add_text("", tag="explorer_status")
-        dpg.add_spacer(width=20)
         dpg.add_text("View:")
         dpg.add_combo(
             items=["geometry", "truss"],
@@ -70,6 +69,16 @@ def _build_top_bar(designs, designs_by_name):
             width=120,
             callback=lambda s, v: _set_mode(v),
         )
+        dpg.add_spacer(width=20)
+        dpg.add_checkbox(
+            label="Live Simulation",
+            default_value=True,
+            callback=lambda s, v: _set_truss_mode(v),
+        )
+        dpg.add_spacer(width=20)
+        dpg.add_text("Status:")
+        dpg.add_spacer(width=5)
+        dpg.add_text("", tag="explorer_status")
 
 
 def _build_canvas():
@@ -79,6 +88,12 @@ def _build_canvas():
         dpg.add_text(f"length: {config.BRIDGE_LENGTH:.0f} mm", color=(160, 160, 180))
         dpg.add_spacer(width=20)
         dpg.add_text(f"height: {config.BRIDGE_HEIGHT:.0f} mm", color=(160, 160, 180))
+        dpg.add_spacer(width=20)
+        dpg.add_text("Deflection: ", color=(160, 160, 180))
+        dpg.add_text("-- mm", tag="explorer_deflection", color=(255, 200, 10))
+        dpg.add_spacer(width=20)
+        dpg.add_text("Weight: ", color=(160, 160, 180))
+        dpg.add_text("-- g", tag="explorer_weight", color=(255, 200, 10))
 
 
 def _build_controls():
@@ -110,6 +125,10 @@ def _select_design(design):
 
 def _set_mode(mode):
     _s.mode = mode
+    _s.dirty = True
+
+def _set_truss_mode(value):
+    _s.solver_enabled = value
     _s.dirty = True
 
 def _rebuild_sliders(design):
@@ -161,7 +180,11 @@ def _on_analyse():
     # Import here to avoid circular imports at module load time
     from gui.tabs import analysis
     geometry = _s.design.build_geometry(_s.params)
-    analysis.load_geometry(geometry)
+    try:
+        truss = _s.design.build_truss(_s.params)
+        analysis.load_design(geometry, truss)
+    except NotImplementedError:
+        analysis.load_geometry(geometry)
 
 
 def _on_export_svg():
@@ -176,26 +199,82 @@ def _on_export_svg():
 
 
 def _redraw():
+    _set_status("ok", (0, 255, 0))
     if _s.design is None:
         return
+
     if not _s.design.validate(_s.params):
         _set_status("Invalid parameters", (255, 180, 0))
         return
 
+    # draw geometry (or truss)
+    geometry = _s.design.build_geometry(_s.params)
     if _s.mode == "geometry":
-        geometry = _s.design.build_geometry(_s.params)
         pixel_data = render_geometry(geometry, CANVAS_W, CANVAS_H)
-
+        dpg.set_value(_s.texture_tag, pixel_data)
     else:
         try:
             truss = _s.design.build_truss(_s.params)
             pixel_data = render_truss(truss, CANVAS_W, CANVAS_H)
+            dpg.set_value(_s.texture_tag, pixel_data)
         except NotImplementedError:
-            _set_status("truss-graph is not implemented for the selected bridge-design", (255, 180, 0))
+            _set_status("truss not implemented for this design", (255, 0, 0))
             return
 
-    dpg.set_value(_s.texture_tag, pixel_data)
-    _set_status("Valid", (100, 220, 100))
+    # Truss solver (optional)
+    if not _s.solver_enabled:
+        return
+    try: # TODO: clean up and understand this code
+        # weight calculation
+        weight = geometry.estimate_weight_grams()
+
+        dpg.set_value(
+            "explorer_weight",
+            f"{weight:.1f} g"
+        )
+
+        # truss solver
+        truss = _s.design.build_truss(_s.params)
+
+        # --- middle bottom node ---
+        xs = [n.x for n in truss.nodes]
+        min_x, max_x = min(xs), max(xs)
+        mid_x = 0.5 * (min_x + max_x)
+
+        bottom_nodes = [i for i, n in enumerate(truss.nodes) if n.y == 0]
+        mid_node = min(bottom_nodes, key=lambda i: abs(truss.nodes[i].x - mid_x))
+
+        # --- load ---
+        F = 5.0 * 9.81
+        forces = {mid_node: (0.0, -F)}
+
+        # --- supports ---
+        left = min(bottom_nodes, key=lambda i: truss.nodes[i].x)
+        right = max(bottom_nodes, key=lambda i: truss.nodes[i].x)
+
+        fixed_dofs = [
+            (left, 0), (left, 1),
+            (right, 1)
+        ]
+
+        # --- solve ---
+        displacements, _ = solve_truss(
+            truss,
+            forces,
+            fixed_dofs,
+            E=2500.0
+        )
+
+        # --- max deflection ---
+        max_defl = max(abs(d[1]) for d in displacements)
+        dpg.set_value(
+            "explorer_deflection",
+            f"{max_defl:.3f} mm"
+        )
+
+    except Exception as e:
+        _set_status(f"Truss-solver error: {e}", (255, 100, 100))
+        dpg.set_value("explorer_deflection", "-- mm")
 
 
 # ----------------- Helpers ------------------------------

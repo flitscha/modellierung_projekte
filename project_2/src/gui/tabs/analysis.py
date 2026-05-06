@@ -10,6 +10,7 @@ import dearpygui.dearpygui as dpg
 
 import config
 from core.geometry import Geometry
+from simulations.solve_truss import solve_truss
 from gui.bridge_canvas import render_geometry
 from export.svg_parser import parse_svg
 from export.svg_exporter import OUTPUT_DIR
@@ -21,6 +22,7 @@ CANVAS_H = 150
 class _State:
     def __init__(self):
         self.geometry: Geometry | None = None
+        self.truss = None
         self.texture_tag = None
         self.dirty = False
 
@@ -55,6 +57,14 @@ def load_geometry(geometry: Geometry):
     Switches focus to this tab and displays the geometry immediately.
     """
     _s.geometry = geometry
+    _s.dirty = True
+    _set_status("Loaded from Explorer", (100, 220, 100))
+    dpg.set_value("main_tabs", "tab_analysis")
+
+
+def load_design(geometry, truss):
+    _s.geometry = geometry
+    _s.truss = truss
     _s.dirty = True
     _set_status("Loaded from Explorer", (100, 220, 100))
     dpg.set_value("main_tabs", "tab_analysis")
@@ -129,8 +139,62 @@ def _refresh_svg_list():
 def _redraw():
     if _s.geometry is None:
         return
+
+    # --- render geometry (for now) ---
     pixel_data = render_geometry(_s.geometry, CANVAS_W, CANVAS_H)
     dpg.set_value(_s.texture_tag, pixel_data)
+
+    # --- weight ---
+    weight = _s.geometry.estimate_weight_grams()
+    dpg.set_value("analysis_weight", f"{weight:.1f} g")
+
+    # --- solver ---
+    if _s.truss is None:
+        dpg.set_value("analysis_deflection", "-- mm")
+        return
+
+    try:
+        truss = _s.truss
+        n = len(truss.nodes)
+
+        # --- find middle bottom node ---
+        xs = [node.x for node in truss.nodes]
+        min_x, max_x = min(xs), max(xs)
+        mid_x = 0.5 * (min_x + max_x)
+
+        # choose closest bottom node
+        bottom_nodes = [i for i, node in enumerate(truss.nodes) if node.y == 0]
+        mid_node = min(bottom_nodes, key=lambda i: abs(truss.nodes[i].x - mid_x))
+
+        # --- forces ---
+        F = 5.0 * 9.81  # Newton
+        forces = {
+            mid_node: (0.0, -F)
+        }
+
+        # --- supports ---
+        left_node = min(bottom_nodes, key=lambda i: truss.nodes[i].x)
+        right_node = max(bottom_nodes, key=lambda i: truss.nodes[i].x)
+
+        fixed_dofs = [
+            (left_node, 0), (left_node, 1),   # fixed
+            (right_node, 1)                  # roller
+        ]
+
+        # --- solve ---
+        displacements, _ = solve_truss(truss, forces, fixed_dofs, E=2500.0)
+
+        # --- max deflection (y) ---
+        max_defl = min(d[1] for d in displacements)  # negative value
+        max_defl_mm = abs(max_defl)
+
+        dpg.set_value("analysis_deflection", f"{max_defl_mm:.3f} mm")
+
+        _set_status("Solved", (100, 220, 100))
+
+    except Exception as e:
+        _set_status(f"Solver error: {e}", (255, 100, 100))
+        dpg.set_value("analysis_deflection", "-- mm")
 
 
 # ----------------- Helpers --------------------------
