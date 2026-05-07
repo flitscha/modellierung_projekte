@@ -1,14 +1,12 @@
 """
 Bridge Design Tool — main window.
-
 Tabs:
     Design Explorer – interactive parameter sliders + live preview
     Analysis        – deflection & stress simulation
     Optimizer       – weight minimisation under deflection budget
 """
 import dearpygui.dearpygui as dpg
-
-from gui.tabs import explorer, analysis
+from gui.tabs import explorer, analysis, optimization
 
 
 def run(designs: list):
@@ -20,7 +18,6 @@ def run(designs: list):
         resizable=True,
     )
     dpg.setup_dearpygui()
-
     _apply_theme()
 
     with dpg.window(tag="main_window", no_title_bar=True, no_move=True,
@@ -28,19 +25,19 @@ def run(designs: list):
         dpg.add_text("Bridge Design Tool", color=(200, 220, 255))
         dpg.add_separator()
         dpg.add_spacer(height=4)
-
         with dpg.tab_bar(tag="main_tabs"):
             explorer.build("main_tabs", designs)
             analysis.build("main_tabs")
-            #optimizer.build("main_tabs")
+            optimization.build("main_tabs", designs)
 
     dpg.set_primary_window("main_window", True)
     dpg.show_viewport()
 
-    # Manual render loop - lets explorer.tick() run every frame in main thread
+    # Manual render loop - lets tick() run every frame in main thread
     while dpg.is_dearpygui_running():
         explorer.tick()
         analysis.tick()
+        optimization.tick()
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()
