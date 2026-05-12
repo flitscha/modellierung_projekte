@@ -13,7 +13,8 @@ Parameters
 num_panels      : int   – number of truss panels (spaces between verticals)
 chord_thickness : float – height of top and bottom horizontal plate  [mm]
 post_thickness  : float – width of vertical posts                    [mm]
-brace_thickness : float – width of diagonal braces                   [mm]
+brace_thickness : float – true perpendicular thickness of diagonal braces [mm]
+                          (minimum 0.4 mm – 3-D printing constraint)
 """
 
 import config
@@ -21,6 +22,9 @@ from core.design import Design
 from core.geometry import Geometry, Rectangle, Parallelogram
 from core.parameter import IntParameter, FloatParameter
 from core.truss import Node, Edge, Truss
+import math
+
+MIN_BRACE_THICKNESS = 0.4   # mm – smallest wall a 3-D printer can reliably produce
 
 
 class PrattTrussDesign(Design):
@@ -32,8 +36,8 @@ class PrattTrussDesign(Design):
         return [
             IntParameter("num_panels", 1, 50),
             FloatParameter("chord_thickness", config.MIN_FEATURE_SIZE, 4.0),
-            FloatParameter("post_thickness", config.MIN_FEATURE_SIZE, 3.0),
-            FloatParameter("brace_thickness", config.MIN_FEATURE_SIZE, 3.0),
+            FloatParameter("post_thickness",  config.MIN_FEATURE_SIZE, 3.0),
+            FloatParameter("brace_thickness", MIN_BRACE_THICKNESS, 3.0),  # ← 0.4 mm floor
         ]
 
     def validate(self, params):
@@ -55,10 +59,12 @@ class PrattTrussDesign(Design):
     def build_geometry(self, params):
         H  = config.BRIDGE_HEIGHT
         L  = config.BRIDGE_LENGTH
-        n  = params["num_panels"]
+        m  = params["num_panels"]
         tc = params["chord_thickness"]
         tp = params["post_thickness"]
-        tb = params["brace_thickness"]
+        tb = params["brace_thickness"]   # perpendicular thickness
+
+        n = 2 * m   # ensure even number of panels
 
         inner_h = H - 2 * tc
         panel_w = (L - tp) / n
@@ -72,13 +78,13 @@ class PrattTrussDesign(Design):
         shapes.append(Rectangle(x=0, y=0, width=L, height=tc))
 
         # ── Verticals (posts) at every panel boundary ──────────────
-        for i in range(n+1):
+        for i in range(n + 1):
             x_post = i * panel_w
             shapes.append(Rectangle(
                 x=x_post, y=tc, width=tp, height=inner_h
             ))
 
-        # ── Diagonals (Howe: outward from centre) ──────────────────
+        # ── Diagonals (Pratt: inward toward centre) ────────────────
         mid = n / 2.0
         for i in range(n):
             x_left  = i * panel_w
@@ -87,40 +93,41 @@ class PrattTrussDesign(Design):
             if i < mid:
                 # Left half: diagonal goes from bottom-right to top-left (/)
                 # skew_x < 0 → top edge shifted left
-                skew = -panel_w + tb - tp
-                bx   = x_right + tp - tb
+                skew = -panel_w 
+                bx   = x_right
             else:
-                # Right half: diagonal goes from bottom-right to top-left (\)
+                # Right half: diagonal goes from bottom-left to top-right (\)
                 # skew_x > 0 → top edge shifted right
-                skew = panel_w - tb + tp
-                bx   = x_left
+                skew = panel_w
+                hor_w = tb * math.sqrt(skew**2 + inner_h**2)/inner_h
+                bx   = x_left - hor_w + tp
 
             shapes.append(Parallelogram(
                 x=bx,
                 y=tc,
-                width=tb,
+                thickness=tb,   # ← true perpendicular wall thickness
                 height=inner_h,
                 skew_x=skew,
             ))
 
         return Geometry(shapes)
 
-
     def build_truss(self, params):
         H  = config.BRIDGE_HEIGHT
         L  = config.BRIDGE_LENGTH
-        n  = params["num_panels"]
-
+        m  = params["num_panels"]
         tc = params["chord_thickness"]
         tp = params["post_thickness"]
         tb = params["brace_thickness"]
+
+        n = 2 * m   # ensure even number of panels
 
         depth = config.BRIDGE_DEPTH
 
         # Cross-sectional areas
         A_chord = tc * depth
         A_post  = tp * depth
-        A_brace = tb * depth
+        A_brace = tb * depth   # tb is now the perpendicular thickness
 
         panel_w = L / n
 
@@ -144,25 +151,24 @@ class PrattTrussDesign(Design):
 
         # bottom chord
         for i in range(n):
-            edges.append(Edge(bottom(i), bottom(i+1), A_chord))
+            edges.append(Edge(bottom(i), bottom(i + 1), A_chord))
 
         # top chord
         for i in range(n):
-            edges.append(Edge(top(i), top(i+1), A_chord))
+            edges.append(Edge(top(i), top(i + 1), A_chord))
 
         # verticals
         for i in range(n + 1):
             edges.append(Edge(bottom(i), top(i), A_post))
 
-        # pratt diagonals
+        # Pratt diagonals (inward toward centre)
         mid = n / 2.0
         for i in range(n):
             if i < mid:
-                # left half: bottom(i+1) -> top(i)
-                edges.append(Edge(bottom(i+1), top(i), A_brace))
+                # left half: bottom(i+1) → top(i)
+                edges.append(Edge(bottom(i + 1), top(i), A_brace))
             else:
-                # right half: bottom(i) -> top(i+1)
-                edges.append(Edge(bottom(i), top(i+1), A_brace))
+                # right half: bottom(i) → top(i+1)
+                edges.append(Edge(bottom(i), top(i + 1), A_brace))
 
         return Truss(nodes, edges)
-

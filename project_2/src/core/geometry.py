@@ -1,3 +1,4 @@
+import math
 import config
 
 
@@ -15,58 +16,64 @@ class Rectangle:
         )
 
 
-
 class Parallelogram:
     """
-    A parallelogram defined by its bottom-left corner, dimensions, and a
-    horizontal skew offset applied to the top edge.
- 
+    A parallelogram defined by its bottom-left corner, true perpendicular
+    thickness, height, and a horizontal skew offset applied to the top edge.
+
+    The public parameter `thickness` is the *perpendicular* distance between
+    the two slanted (left / right) sides – i.e. the real wall thickness that
+    a 3-D printer will produce.  The internal horizontal span `width` is
+    derived automatically:
+
+        side_length = √(skew_x² + height²)
+        width       = thickness × side_length / height
+
     Vertices (counter-clockwise from bottom-left):
-        BL = (x,          y)
-        BR = (x + width,  y)
+        BL = (x,                   y)
+        BR = (x + width,           y)
         TR = (x + width + skew_x,  y + height)
         TL = (x + skew_x,          y + height)
- 
-    A positive skew_x leans the shape to the right (/) diagonal.
-    A negative skew_x leans it to the left (\) diagonal.
- 
+
+    A positive skew_x leans the shape to the right.
+    A negative skew_x leans it to the left.
+
     contains() uses a fast point-in-parallelogram test via local
     (u, v) coordinates so rasterisation stays exact.
     """
- 
-    def __init__(self, x, y, width, height, skew_x=0.0):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-        self.skew_x = skew_x
- 
+
+    def __init__(self, x, y, thickness, height, skew_x=0.0):
+        self.x         = x
+        self.y         = y
+        self.thickness = thickness
+        self.height    = height
+        self.skew_x    = skew_x
+
+        # Derive the internal horizontal span from the true thickness.
+        # thickness = width * height / side_length
+        # → width   = thickness * side_length / height
+        side_length = math.sqrt(skew_x ** 2 + height ** 2)
+        self.width = thickness * side_length / height
+
     def contains(self, px, py):
         # Translate so BL is the origin
         lx = px - self.x
         ly = py - self.y
- 
+
         # Local basis:
-        #   e1 = (width, 0)          → horizontal bottom edge
-        #   e2 = (skew_x, height)    → left side edge
-        # Solve [e1 | e2] * [u; v] = [lx; ly]
-        # e1 x e2 = width * height  (det, always > 0 if width/height > 0)
+        #   e1 = (width, 0)       → horizontal bottom edge
+        #   e2 = (skew_x, height) → left side edge
+        # Solve [e1 | e2] * [u; v] = [lx; ly]  via Cramer's rule
         det = self.width * self.height
         if det == 0:
             return False
- 
-        v = (lx * 0 - ly * self.width) / (-det)   # simplified below
-        # Full 2-D Cramer:
-        #   u = (lx * height - ly * skew_x) / det
-        #   v = (lx * 0      - ly * width ) / (-det)  →  v = ly / height
+
         u = (lx * self.height - ly * self.skew_x) / det
         v = ly / self.height
- 
+
         return 0.0 <= u <= 1.0 and 0.0 <= v <= 1.0
-    
 
 
-    
 class Geometry:
     def __init__(self, shapes):
         self.shapes = shapes
@@ -79,10 +86,10 @@ class Geometry:
         min_y = float('inf')
         max_x = float('-inf')
         max_y = float('-inf')
- 
+
         for s in self.shapes:
             if isinstance(s, Parallelogram):
-                # All four corners
+                # All four corners  (self.width is the derived horizontal span)
                 corners_x = [s.x, s.x + s.width,
                               s.x + s.skew_x, s.x + s.width + s.skew_x]
                 corners_y = [s.y, s.y, s.y + s.height, s.y + s.height]
@@ -95,13 +102,12 @@ class Geometry:
                 min_y = min(min_y, s.y)
                 max_x = max(max_x, s.x + s.width)
                 max_y = max(max_y, s.y + s.height)
- 
+
         return min_x, min_y, max_x, max_y
 
     def approximate_area(self, resolution=1.0):
-        # approximate the area, using rasterisation.
-
-        # It should be possible to calculate it exactly, once the "geometry-cleaner" is implemented
+        # Approximate the area using rasterisation.
+        # Exact calculation possible once a geometry-cleaner is implemented.
         min_x, min_y, max_x, max_y = self.bounding_box()
 
         area = 0.0
@@ -121,6 +127,5 @@ class Geometry:
         Cross-section area (mm²) × extrusion depth (mm) × PLA density (g/mm³).
         """
         area = self.approximate_area(resolution=0.5)
-        volume = area * config.BRIDGE_DEPTH # mm^3
-        return volume * config.PLA_DENSITY # grams
-
+        volume = area * config.BRIDGE_DEPTH  # mm³
+        return volume * config.PLA_DENSITY   # grams
