@@ -249,13 +249,17 @@ def _redraw():
         forces = {mid_node: (0.0, -F)}
 
         # --- supports ---
-        left = min(bottom_nodes, key=lambda i: truss.nodes[i].x)
-        right = max(bottom_nodes, key=lambda i: truss.nodes[i].x)
+        left_nodes = boundary_nodes_by_x(truss, min_x)
+        right_nodes = boundary_nodes_by_x(truss, max_x)
 
-        fixed_dofs = [
-            (left, 0), (left, 1),
-            (right, 1)
-        ]
+        fixed_dofs = []
+        for i in left_nodes + right_nodes:
+            fixed_dofs.extend([
+                #(i, 0),
+                (i, 1),
+            ])
+
+        print(fixed_dofs)
 
         # --- solve ---
         displacements, _ = solve_truss(
@@ -278,6 +282,12 @@ def _redraw():
 
 
 # ----------------- Helpers ------------------------------
+def boundary_nodes_by_x(truss, x, tol=1e-9):
+    return [
+        i for i, n in enumerate(truss.nodes)
+        if abs(n.x - x) < tol
+    ]
+
 def _create_texture() -> int:
     blank = [0.12, 0.12, 0.16, 1.0] * (CANVAS_W * CANVAS_H)
     with dpg.texture_registry():

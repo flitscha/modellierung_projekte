@@ -1,126 +1,85 @@
+import numpy as np
+from shapely.geometry import Polygon
+from shapely.ops import unary_union, triangulate
+from sectionproperties.pre.geometry import Geometry as SPGeometry
+from skfem import MeshTri
+
 import config
 
 
-class Rectangle:
-    def __init__(self, x, y, width, height):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-
-    def contains(self, px, py):
-        return (
-            self.x <= px <= self.x + self.width and
-            self.y <= py <= self.y + self.height
-        )
-
-
-
-class Parallelogram:
-    """
-    A parallelogram defined by its bottom-left corner, dimensions, and a
-    horizontal skew offset applied to the top edge.
- 
-    Vertices (counter-clockwise from bottom-left):
-        BL = (x,          y)
-        BR = (x + width,  y)
-        TR = (x + width + skew_x,  y + height)
-        TL = (x + skew_x,          y + height)
- 
-    A positive skew_x leans the shape to the right (/) diagonal.
-    A negative skew_x leans it to the left (\) diagonal.
- 
-    contains() uses a fast point-in-parallelogram test via local
-    (u, v) coordinates so rasterisation stays exact.
-    """
- 
-    def __init__(self, x, y, width, height, skew_x=0.0):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-        self.skew_x = skew_x
- 
-    def contains(self, px, py):
-        # Translate so BL is the origin
-        lx = px - self.x
-        ly = py - self.y
- 
-        # Local basis:
-        #   e1 = (width, 0)          → horizontal bottom edge
-        #   e2 = (skew_x, height)    → left side edge
-        # Solve [e1 | e2] * [u; v] = [lx; ly]
-        # e1 x e2 = width * height  (det, always > 0 if width/height > 0)
-        det = self.width * self.height
-        if det == 0:
-            return False
- 
-        v = (lx * 0 - ly * self.width) / (-det)   # simplified below
-        # Full 2-D Cramer:
-        #   u = (lx * height - ly * skew_x) / det
-        #   v = (lx * 0      - ly * width ) / (-det)  →  v = ly / height
-        u = (lx * self.height - ly * self.skew_x) / det
-        v = ly / self.height
- 
-        return 0.0 <= u <= 1.0 and 0.0 <= v <= 1.0
-    
-
-
-    
 class Geometry:
-    def __init__(self, shapes):
-        self.shapes = shapes
+    def __init__(self):
+        # Wir starten mit einer Liste von "naiven" Polygonen
+        self.raw_shapes = []
+        self._cached_clean_shape = None
 
-    def contains(self, x, y):
-        return any(shape.contains(x, y) for shape in self.shapes)
+    def add_rectangle(self, x, y, width, height):
+        # Erzeugt ein Shapely-Rechteck
+        coords = [(x, y), (x + width, y), (x + width, y + height), (x, y + height)]
+        self.raw_shapes.append(Polygon(coords))
+        self._cached_clean_shape = None
 
-    def bounding_box(self):
-        min_x = float('inf')
-        min_y = float('inf')
-        max_x = float('-inf')
-        max_y = float('-inf')
- 
-        for s in self.shapes:
-            if isinstance(s, Parallelogram):
-                # All four corners
-                corners_x = [s.x, s.x + s.width,
-                              s.x + s.skew_x, s.x + s.width + s.skew_x]
-                corners_y = [s.y, s.y, s.y + s.height, s.y + s.height]
-                min_x = min(min_x, *corners_x)
-                max_x = max(max_x, *corners_x)
-                min_y = min(min_y, *corners_y)
-                max_y = max(max_y, *corners_y)
-            else:  # Rectangle
-                min_x = min(min_x, s.x)
-                min_y = min(min_y, s.y)
-                max_x = max(max_x, s.x + s.width)
-                max_y = max(max_y, s.y + s.height)
- 
-        return min_x, min_y, max_x, max_y
+    def add_parallelogram(self, x, y, width, height, skew_x):
+        # Erzeugt ein Shapely-Parallelogramm
+        coords = [
+            (x, y), 
+            (x + width, y), 
+            (x + width + skew_x, y + height), 
+            (x + skew_x, y + height)
+        ]
+        self.raw_shapes.append(Polygon(coords))
+        self._cached_clean_shape = None
 
-    def approximate_area(self, resolution=1.0):
-        # approximate the area, using rasterisation.
+    @property
+    def clean_shape(self):
+        if self._cached_clean_shape is None:
+            self._cached_clean_shape = unary_union(self.raw_shapes)
+        return self._cached_clean_shape
 
-        # It should be possible to calculate it exactly, once the "geometry-cleaner" is implemented
-        min_x, min_y, max_x, max_y = self.bounding_box()
+    def build_skfem_mesh(self, max_area=2.0):
+        """Erstellt ein Dreiecksnetz für die FEM-Analyse."""
+        shape = self.clean_shape
+        
+        # 1. Delaunay-Triangulierung der Eckpunkte
+        all_triangles = triangulate(shape)
+        
+        # 2. Nur Dreiecke behalten, die INSIDE der Silhouette liegen
+        # Wir nutzen einen kleinen negativen Buffer, um Grenzfälle zu vermeiden
+        valid_tris = [t for t in all_triangles if shape.contains(t.centroid)]
+        
+        pts = []
+        elements = []
+        pt_map = {}
 
-        area = 0.0
-        x = min_x
-        while x < max_x:
-            y = min_y
-            while y < max_y:
-                if self.contains(x, y):
-                    area += resolution * resolution
-                y += resolution
-            x += resolution
+        for tri in valid_tris:
+            tri_idx = []
+            # Dreiecke haben in Shapely 4 Punkte (der letzte ist gleich dem ersten)
+            for coord in tri.exterior.coords[:-1]:
+                if coord not in pt_map:
+                    pt_map[coord] = len(pts)
+                    pts.append(coord)
+                tri_idx.append(pt_map[coord])
+            elements.append(tri_idx)
 
-        return area
+        if not pts:
+            raise ValueError("Meshing fehlgeschlagen: Keine gültigen Dreiecke gefunden.")
+
+        return MeshTri(np.array(pts).T, np.array(elements).T)
+
+    def get_area(self):
+        """Exakte Fläche ohne Rasterung."""
+        return self.clean_shape.area
 
     def estimate_weight_grams(self):
-        """
-        Cross-section area (mm²) × extrusion depth (mm) × PLA density (g/mm³).
-        """
-        area = self.approximate_area(resolution=0.5)
-        volume = area * config.BRIDGE_DEPTH # mm^3
-        return volume * config.PLA_DENSITY # grams
+        volume = self.get_area() * config.BRIDGE_DEPTH
+        return volume * config.PLA_DENSITY
+
+    def export_svg(self, filename):
+        """Speichert die saubere Außenhülle als SVG."""
+        svg_data = self.clean_shape._repr_svg_()
+        with open(filename, "w") as f:
+            f.write(f'<?xml version="1.0" encoding="utf-8" ?>\n')
+            f.write(f'<svg xmlns="http://www.w3.org/2000/svg" version="1.1">\n')
+            f.write(svg_data)
+            f.write(f'\n</svg>')
 

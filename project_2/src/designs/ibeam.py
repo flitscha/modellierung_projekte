@@ -1,6 +1,6 @@
 import config
 from core.design import Design
-from core.geometry import Geometry, Rectangle
+from core.geometry import Geometry
 from core.parameter import IntParameter, FloatParameter
 from core.truss import Truss, Node, Edge
 
@@ -42,39 +42,36 @@ class IBeamDesign(Design):
         t_b = params["beam_thickness"]
         t_p = params["plate_thickness"]
 
-        shapes = []
+        geo = Geometry()
 
-        # upper plate
-        shapes.append(Rectangle(
+        # top plate
+        geo.add_rectangle(
             x=0,
             y=H - t_p,
             width=L,
             height=t_p
-        ))
+        )
 
-        # lower plate
-        shapes.append(Rectangle(
+        # bottom plate
+        geo.add_rectangle(
             x=0,
             y=0,
             width=L,
             height=t_p
-        ))
+        )
 
         # vertical beams
         spacing = (L - t_b) / (n - 1)
-        start_x = 0
-
         for i in range(n):
-            x_pos = start_x + i * spacing
-
-            shapes.append(Rectangle(
+            x_pos = i * spacing
+            geo.add_rectangle(
                 x=x_pos,
                 y=t_p,
                 width=t_b,
                 height=H - 2 * t_p
-            ))
+            )
 
-        return Geometry(shapes)
+        return geo
 
 
     def build_truss(self, params):

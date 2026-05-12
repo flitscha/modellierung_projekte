@@ -1,16 +1,11 @@
-"""
-Converts a Geometry object into a flat RGBA byte array that can be
-uploaded as a DearPyGui dynamic texture.
-"""
 import numpy as np
-from core.geometry import Geometry, Parallelogram
+from shapely.vectorized import contains as shapely_contains
+from core.geometry import Geometry
 from core.truss import Truss
 
 # Colors (RGBA)
 COLOR_BRIDGE = (80, 160, 220, 255)
 COLOR_BG = (30, 30, 40, 255)
-COLOR_GRID = (50, 50, 60, 255)
-
 
 def render_geometry(
     geometry: Geometry,
@@ -18,13 +13,8 @@ def render_geometry(
     canvas_h: int,
     padding_frac: float = 0.08,
 ) -> list[float]:
-    """
-    Returns a flat list of floats in [0, 1] (RGBA per pixel) for DPG.
-
-    The geometry bounding box is scaled to fill the canvas with a small
-    padding so the bridge never touches the edges.
-    """
-    min_x, min_y, max_x, max_y = geometry.bounding_box()
+    # 1. Bounding Box von Shapely holen
+    min_x, min_y, max_x, max_y = geometry.clean_shape.bounds
     geo_w = max_x - min_x or 1.0
     geo_h = max_y - min_y or 1.0
 
@@ -35,38 +25,23 @@ def render_geometry(
 
     scale = min(draw_w / geo_w, draw_h / geo_h)
 
-    # Centre the geometry in the canvas
     offset_x = pad_x + (draw_w - geo_w * scale) / 2
     offset_y = pad_y + (draw_h - geo_h * scale) / 2
 
-    xs = np.linspace(0, canvas_w - 1, canvas_w)
-    ys = np.linspace(0, canvas_h - 1, canvas_h)
-    px_grid, py_grid = np.meshgrid(xs, ys)
+    # 2. Pixel-Gitter in Welt-Koordinaten umrechnen
+    # Wir machen das direkt mit NumPy für Speed
+    x_coords = (np.arange(canvas_w) - offset_x) / scale + min_x
+    y_coords = (canvas_h - 1 - np.arange(canvas_h) - offset_y) / scale + min_y
+    
+    gx, gy = np.meshgrid(x_coords, y_coords)
 
-    gx = (px_grid - offset_x) / scale + min_x
-    gy = (canvas_h - 1 - py_grid - offset_y) / scale + min_y
+    # 3. Die Magie: Vektorisierter Point-in-Polygon Test
+    # shapely.vectorized.contains prüft das gesamte Grid auf einmal gegen das verschmolzene Shape
+    mask = shapely_contains(geometry.clean_shape, gx, gy)
 
-    mask = np.zeros((canvas_h, canvas_w), dtype=bool)
-
-    for shape in geometry.shapes:
-        if isinstance(shape, Parallelogram):
-            # Point-in-parallelogram via local (u, v) coords
-            det = shape.width * shape.height
-            if det == 0:
-                continue
-            lx = gx - shape.x
-            ly = gy - shape.y
-            u = (lx * shape.height - ly * shape.skew_x) / det
-            v = ly / shape.height
-            mask |= (u >= 0) & (u <= 1) & (v >= 0) & (v <= 1)
-        else:
-            # Rectangle
-            mask |= (
-                (gx >= shape.x) & (gx <= shape.x + shape.width) &
-                (gy >= shape.y) & (gy <= shape.y + shape.height)
-            )
-
-    rgba = np.where(mask[..., None], COLOR_BRIDGE, COLOR_BG) / 255.0
+    # 4. Farben zuweisen
+    rgba = np.where(mask[..., None], COLOR_BRIDGE, COLOR_BG).astype(np.float32) / 255.0
+    
     return rgba.flatten().tolist()
 
 
