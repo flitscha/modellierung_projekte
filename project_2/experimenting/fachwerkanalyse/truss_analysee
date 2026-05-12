@@ -1,0 +1,833 @@
+"""
+=============================================================================
+FACHWERK-BRÜCKEN-SIMULATION
+=============================================================================
+Aufgabe:
+  - Brücke: 300 mm lang, max 15 mm hoch, 50 mm breit
+  - Last: 5 kg (≈ 49.05 N) in der Mitte, verteilt auf ~100 mm (Scheiben)
+  - Eingespannt: BEIDE Seiten (beidseitig fest = Einspannung, kein Gelenk!)
+  - Material: PLA (3D-Druck)
+  - Ziel: Durchbiegung ≤ 3 mm, Gewicht so gering wie möglich
+  - Export: SVG-Datei für 3D-Drucker
+
+Methode: Direkte Steifigkeitsmethode (FEM für Fachwerk-Stäbe)
+  Jeder Stab hat nur Zug/Druck (keine Biegung im Stab selbst).
+  An jedem Knoten gilt Gleichgewicht: Summe aller Kräfte = 0
+  → Lineares Gleichungssystem: K * u = F
+  → Lösung u = Verschiebungen aller Knoten
+=============================================================================
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.patches import FancyArrow
+import svgwrite                  # pip install svgwrite
+import warnings
+warnings.filterwarnings('ignore')
+
+
+# =============================================================================
+# ABSCHNITT 1: MATERIAL- UND GEOMETRIE-PARAMETER
+# =============================================================================
+
+# --- Geometrie der Brücke ---
+L_mm   = 300.0   # Gesamtlänge der Brücke in mm
+H_mm   = 15.0    # Höhe des Fachwerks in mm (max 15, etwas Spielraum lassen)
+B_mm   = 50.0    # Tiefe (Breite) des Querschnitts für Gewichtsberechnung
+
+# --- Fachwerk-Topologie ---
+N_panels = 10     # Anzahl der Felder (Panels) → mehr Felder = feineres Gitter
+                 # Empfehlung: 6-10 für diese Brückengröße
+truss_type = 'pratt'   # 'pratt', 'howe', oder 'warren'
+
+# --- Querschnittsdicken der Stäbe (in mm) ---
+# Jeder Stab hat einen quadratischen Querschnitt: A = t * t
+# Der 3D-Drucker braucht mindestens 0.4 mm!
+t_top   = 5.0    # Obergurt-Dicke  (wird auf DRUCK belastet)
+t_bot   = 3.0    # Untergurt-Dicke (wird auf ZUG belastet)
+t_diag  = 5.0    # Diagonalen-Dicke
+t_vert  = 1.0   # Pfosten-Dicke (vertikale Stäbe)
+
+# --- Material: PLA (Polylactid) ---
+E_MPa       = 3500.0   # E-Modul in MPa (= N/mm²) → Steifigkeit
+rho_g_mm3   = 1.24e-3  # Dichte in g/mm³
+sigma_yield = 50.0     # Streckgrenze in MPa (PLA bricht bei ~50 MPa)
+
+# --- Last ---
+F_total_N   = 5.0 * 9.81   # 5 kg * Erdbeschleunigung = 49.05 N
+load_width  = 100.0         # Lastverteilung über 100 mm (Scheiben-Durchmesser)
+                            # → Last wird auf mehrere Knoten aufgeteilt
+
+# --- Anforderung ---
+max_deflection_mm = 3.0    # maximale erlaubte Durchbiegung
+
+
+# =============================================================================
+# ABSCHNITT 2: KNOTEN ERZEUGEN
+# =============================================================================
+# Ein Fachwerk besteht aus Knoten (Punkten) und Stäben (Linien dazwischen).
+# Wir haben zwei "Gurte": Obergurt (oben) und Untergurt (unten).
+#
+#   Obergurt:   0 --- 2 --- 4 --- 6 --- ...  (gerade Indizes)
+#               |  \  |  /  |  \  |
+#   Untergurt:  1 --- 3 --- 5 --- 7 --- ...  (ungerade Indizes)
+#
+# Knotenkoordinaten: [x, y] in mm
+
+def build_nodes(N, L, H):
+    """
+    Erzeugt die Knotenkoordinaten des Fachwerks.
+    
+    Parameter:
+        N : int   → Anzahl der Felder
+        L : float → Gesamtlänge in mm
+        H : float → Höhe in mm
+    
+    Rückgabe:
+        nodes : np.array shape (2*(N+1), 2)
+                Zeile i = [x_i, y_i]
+                Gerade Indizes = Obergurt (y = H)
+                Ungerade Indizes = Untergurt (y = 0)
+    """
+    panel_length = L / N   # Länge eines einzelnen Feldes
+    nodes = []
+    
+    for i in range(N + 1):
+        x = i * panel_length
+        nodes.append([x, H])   # Obergurt-Knoten (oben)
+        nodes.append([x, 0.0]) # Untergurt-Knoten (unten)
+    
+    return np.array(nodes, dtype=float)
+
+
+# =============================================================================
+# ABSCHNITT 3: STÄBE ERZEUGEN
+# =============================================================================
+# Jeder Stab verbindet zwei Knoten und hat:
+#   - Querschnittsfläche A (in mm²)
+#   - E-Modul (MPa)
+#   - einen Typ (für Visualisierung)
+#
+# PRATT TRUSS: Diagonalen zeigen zur Mitte hin (Zug-Diagonalen)
+# HOWE TRUSS:  Diagonalen zeigen nach außen (Druck-Diagonalen)
+# WARREN TRUSS: Keine Pfosten, nur alternierende Diagonalen
+
+def build_members(N, nodes, t_top, t_bot, t_diag, t_vert, truss_type):
+    """
+    Erzeugt alle Stäbe des Fachwerks.
+    
+    Rückgabe: Liste von Dictionaries mit:
+        'a'    : Index Startknoten
+        'b'    : Index Endknoten
+        'A'    : Querschnittsfläche (mm²)
+        'type' : 'top', 'bot', 'vert', 'diag'
+    """
+    members = []
+    
+    # Querschnittsflächen (quadratischer Querschnitt: A = t * t)
+    A_top  = t_top  * t_top
+    A_bot  = t_bot  * t_bot
+    A_diag = t_diag * t_diag
+    A_vert = t_vert * t_vert
+    
+    # --- Obergurt: verbindet alle oberen Knoten (0→2→4→...) ---
+    for i in range(N):
+        members.append({'a': 2*i, 'b': 2*(i+1), 'A': A_top, 'type': 'top'})
+    
+    # --- Untergurt: verbindet alle unteren Knoten (1→3→5→...) ---
+    for i in range(N):
+        members.append({'a': 2*i+1, 'b': 2*(i+1)+1, 'A': A_bot, 'type': 'bot'})
+    
+    # --- Vertikale Pfosten: verbinden oben ↔ unten an jedem Knoten ---
+    if truss_type != 'warren':
+        for i in range(N + 1):
+            members.append({'a': 2*i, 'b': 2*i+1, 'A': A_vert, 'type': 'vert'})
+    else:
+        # Warren: nur an den Enden Pfosten (für Auflager-Anschluss)
+        members.append({'a': 0,   'b': 1,     'A': A_vert, 'type': 'vert'})
+        members.append({'a': 2*N, 'b': 2*N+1, 'A': A_vert, 'type': 'vert'})
+    
+    # --- Diagonalen: je nach Fachwerk-Typ ---
+    mid = N / 2.0  # Mittelpunkt (für gespiegelte Diagonalen)
+    
+    for i in range(N):
+        if truss_type == 'pratt':
+            # Pratt: Links-Hälfte → Diagonale geht von unten-links nach oben-rechts
+            #        Rechts-Hälfte → gespiegelt
+            if i < mid:
+                # Zug-Diagonale (linke Hälfte)
+                members.append({'a': 2*i+1, 'b': 2*(i+1), 'A': A_diag, 'type': 'diag'})
+            else:
+                # Zug-Diagonale (rechte Hälfte, gespiegelt)
+                members.append({'a': 2*i,   'b': 2*(i+1)+1, 'A': A_diag, 'type': 'diag'})
+        
+        elif truss_type == 'howe':
+            # Howe: Diagonalen in entgegengesetzter Richtung (Druck-Diagonalen)
+            if i < mid:
+                members.append({'a': 2*i,   'b': 2*(i+1)+1, 'A': A_diag, 'type': 'diag'})
+            else:
+                members.append({'a': 2*i+1, 'b': 2*(i+1),   'A': A_diag, 'type': 'diag'})
+        
+        elif truss_type == 'warren':
+            # Warren: Diagonalen wechseln ab (keine Pfosten)
+            if i % 2 == 0:
+                members.append({'a': 2*i+1, 'b': 2*(i+1),   'A': A_diag, 'type': 'diag'})
+            else:
+                members.append({'a': 2*i,   'b': 2*(i+1)+1, 'A': A_diag, 'type': 'diag'})
+    
+    return members
+
+
+# =============================================================================
+# ABSCHNITT 4: GLOBALE STEIFIGKEITSMATRIX AUFBAUEN
+# =============================================================================
+# Die Steifigkeitsmethode (FEM) funktioniert so:
+#
+#   Für jeden Stab gilt: F_stab = k * u_stab
+#   mit k = (A * E) / L_stab (Federsteifigkeit des Stabes)
+#
+#   Jeder Knoten hat 2 Freiheitsgrade (DOF): x-Verschiebung und y-Verschiebung
+#   → Gesamtsystem: K_global * u = F_extern
+#
+#   K_global ist eine (2*n_Knoten) × (2*n_Knoten) Matrix
+
+def build_stiffness_matrix(nodes, members, E):
+    """
+    Baut die globale Steifigkeitsmatrix K auf.
+    
+    Für jeden Stab wird die lokale 4×4 Steifigkeitsmatrix berechnet
+    und in die globale Matrix eingetragen (Assembly).
+    """
+    n_nodes = len(nodes)
+    n_dof   = 2 * n_nodes   # 2 DOF pro Knoten (x und y)
+    
+    K = np.zeros((n_dof, n_dof))  # Globale Steifigkeitsmatrix, zu Beginn alles null
+    
+    for m in members:
+        # Koordinaten der beiden Endknoten
+        x1, y1 = nodes[m['a']]
+        x2, y2 = nodes[m['b']]
+        
+        # Länge und Richtungsvektor des Stabs
+        dx  = x2 - x1
+        dy  = y2 - y1
+        L   = np.sqrt(dx**2 + dy**2)   # Stablänge
+        c   = dx / L                    # cos(Winkel)
+        s   = dy / L                    # sin(Winkel)
+        
+        # Axiale Steifigkeit des Stabs (wie eine Feder)
+        AE_L = m['A'] * E / L
+        
+        # Lokale Steifigkeitsmatrix (4×4) für diesen Stab
+        # Ordnung der DOFs: [u_a_x, u_a_y, u_b_x, u_b_y]
+        # Diese Matrix beschreibt wie Kräfte und Verschiebungen zusammenhängen
+        ke = AE_L * np.array([
+            [ c*c,  c*s, -c*c, -c*s],
+            [ c*s,  s*s, -c*s, -s*s],
+            [-c*c, -c*s,  c*c,  c*s],
+            [-c*s, -s*s,  c*s,  s*s]
+        ])
+        
+        # DOF-Indizes der zwei Knoten in der globalen Matrix
+        dofs = [2*m['a'], 2*m['a']+1, 2*m['b'], 2*m['b']+1]
+        
+        # Assembly: lokale Matrix in globale Matrix eintragen
+        for i in range(4):
+            for j in range(4):
+                K[dofs[i], dofs[j]] += ke[i, j]
+        
+        # Länge und Richtung für spätere Kraftberechnung speichern
+        m['L'] = L
+        m['c'] = c
+        m['s'] = s
+    
+    return K
+
+
+# =============================================================================
+# ABSCHNITT 5: RANDBEDINGUNGEN UND LAST
+# =============================================================================
+# WICHTIG: Die Brücke wird auf BEIDEN Seiten eingespannt (nicht nur aufgelegt)!
+# → Beidseitige Einspannung = beide Enden sind komplett fixiert (x UND y = 0)
+#
+# Ohne Randbedingungen ist K singulär (Brücke könnte wegschwimmen).
+# Durch Fixieren bestimmter DOFs wird K lösbar.
+#
+# Die Last (5 kg Scheiben, ⌀ 100 mm) wird auf Knoten im Bereich
+# x = 100..200 mm (Mitte ±50 mm) verteilt.
+
+def apply_boundary_conditions_and_load(nodes, N, F_total, load_width, L):
+    """
+    Gibt zurück:
+        fixed_dofs : Liste der fixierten Freiheitsgrade
+        F_vec      : Lastvektor (n_dof,)
+    """
+    n_dof = 2 * len(nodes)
+    F_vec = np.zeros(n_dof)
+    
+    # --- Beidseitige Einspannung ---
+    # Linkes Ende: Knoten 0 (Obergurt) und Knoten 1 (Untergurt)
+    # Rechtes Ende: Knoten 2*N (Obergurt) und Knoten 2*N+1 (Untergurt)
+    # Alle 4 Knoten: x UND y fixiert = 4*2 = 8 fixierte DOFs
+    fixed_dofs = [
+        # Linkes Ende
+        0,          # Knoten 0, x-Richtung
+        1,          # Knoten 0, y-Richtung
+        2,          # Knoten 1, x-Richtung
+        3,          # Knoten 1, y-Richtung
+        # Rechtes Ende
+        2*(2*N),    # Knoten 2*N, x-Richtung
+        2*(2*N)+1,  # Knoten 2*N, y-Richtung
+        2*(2*N+1),  # Knoten 2*N+1, x-Richtung
+        2*(2*N+1)+1 # Knoten 2*N+1, y-Richtung
+    ]
+    
+    # --- Last auf Untergurt-Knoten im Mittelbereich verteilen ---
+    # Die Scheiben (⌀ 100 mm) liegen auf dem Untergurt auf
+    # → Last wirkt auf Untergurt-Knoten zwischen x = 100 und x = 200 mm
+    center_x = L / 2.0          # Mitte der Brücke
+    x_min    = center_x - load_width / 2.0  # 100 mm von links
+    x_max    = center_x + load_width / 2.0  # 200 mm von links
+    
+    # Welche Untergurt-Knoten liegen im Lastbereich?
+    loaded_nodes = []
+    for i in range(N + 1):
+        node_idx = 2*i + 1     # Untergurt-Knoten haben ungerade Indizes
+        x_node   = nodes[node_idx][0]
+        if x_min <= x_node <= x_max:
+            loaded_nodes.append(node_idx)
+    
+    # Wenn kein Knoten genau im Bereich → Mittelknoten nehmen
+    if len(loaded_nodes) == 0:
+        mid_node = 2 * (N // 2) + 1
+        loaded_nodes = [mid_node]
+    
+    # Last gleichmäßig auf die Lastknoten verteilen
+    F_per_node = -F_total / len(loaded_nodes)  # negativ = nach unten
+    
+    for node_idx in loaded_nodes:
+        F_vec[2*node_idx + 1] += F_per_node    # y-Komponente (nach unten)
+    
+    print(f"  Last verteilt auf {len(loaded_nodes)} Knoten: je {F_per_node:.2f} N")
+    print(f"  Lastknoten: {loaded_nodes}, x-Positionen: {[nodes[n][0] for n in loaded_nodes]}")
+    
+    return fixed_dofs, F_vec
+
+
+# =============================================================================
+# ABSCHNITT 6: GLEICHUNGSSYSTEM LÖSEN
+# =============================================================================
+# K * u = F → u = K_reduziert^(-1) * F_reduziert
+#
+# Wir streichen die Zeilen und Spalten der fixierten DOFs aus K,
+# dann lösen wir das reduzierte System mit numpy.
+
+def solve_system(K, F_vec, fixed_dofs):
+    """
+    Löst das Gleichungssystem K * u = F unter Berücksichtigung
+    der fixierten Freiheitsgrade.
+    
+    Rückgabe:
+        u : np.array (n_dof,) → Verschiebungsvektor aller Knoten
+    """
+    n_dof = len(F_vec)
+    
+    # Freie DOFs = alle DOFs minus die fixierten
+    all_dofs  = list(range(n_dof))
+    free_dofs = [d for d in all_dofs if d not in fixed_dofs]
+    
+    # Reduzierte Steifigkeitsmatrix (nur freie DOFs)
+    K_red = K[np.ix_(free_dofs, free_dofs)]
+    F_red = F_vec[free_dofs]
+    
+    # Konditionszahl prüfen (zeigt ob Matrix gut lösbar ist)
+    cond = np.linalg.cond(K_red)
+    if cond > 1e12:
+        print(f"  WARNUNG: Steifigkeitsmatrix schlecht konditioniert (cond = {cond:.2e})")
+        print("  → Fachwerk möglicherweise instabil oder unterbestimmt!")
+    
+    # Lineares Gleichungssystem lösen: K_red * u_free = F_red
+    u_free = np.linalg.solve(K_red, F_red)
+    
+    # Kompletten Verschiebungsvektor zusammensetzen
+    u = np.zeros(n_dof)
+    for i, dof in enumerate(free_dofs):
+        u[dof] = u_free[i]
+    # fixierte DOFs bleiben 0 (keine Verschiebung)
+    
+    return u
+
+
+# =============================================================================
+# ABSCHNITT 7: STABKRÄFTE UND SPANNUNGEN BERECHNEN
+# =============================================================================
+# Aus den Knotenverschiebungen u können wir die Kraft in jedem Stab berechnen:
+#   F_stab = (A * E / L) * (c * du_x + s * du_y)
+#   wobei du = Verschiebungsdifferenz der zwei Endknoten
+#
+#   Spannung σ = F_stab / A
+#   Positiv = Zug, Negativ = Druck
+
+def compute_member_forces(members, nodes, u, E):
+    """
+    Berechnet Axialkraft und Spannung für jeden Stab.
+    Fügt jedem Stab-Dictionary hinzu: 'force' (N) und 'stress' (MPa)
+    """
+    for m in members:
+        # Verschiebungen der zwei Endknoten
+        ua_x = u[2*m['a']]
+        ua_y = u[2*m['a']+1]
+        ub_x = u[2*m['b']]
+        ub_y = u[2*m['b']+1]
+        
+        # Relative Verschiebung in Stabrichtung (Projektion)
+        delta = m['c'] * (ub_x - ua_x) + m['s'] * (ub_y - ua_y)
+        
+        # Kraft im Stab (axial)
+        force = m['A'] * E / m['L'] * delta
+        
+        # Spannung
+        stress = force / m['A']
+        
+        m['force']  = force    # N  (+ = Zug, - = Druck)
+        m['stress'] = stress   # MPa
+    
+    return members
+
+
+# =============================================================================
+# ABSCHNITT 8: ERGEBNISSE AUSWERTEN
+# =============================================================================
+
+def evaluate_results(nodes, members, u, N, sigma_yield, rho, B, max_defl_allowed):
+    """
+    Berechnet und gibt alle wichtigen Kennzahlen aus.
+    """
+    print("\n" + "="*60)
+    print("ERGEBNISSE")
+    print("="*60)
+    
+    # --- Maximale Durchbiegung (y-Verschiebung Untergurt-Mitte) ---
+    # Untergurt-Knoten in der Mitte haben die größte Durchbiegung
+    mid_bottom_node = 2 * (N // 2) + 1
+    defl = abs(u[2*mid_bottom_node + 1])
+    
+    # Zur Sicherheit: Maximum über alle Untergurt-Knoten
+    deflections = []
+    for i in range(N + 1):
+        d = abs(u[2*(2*i+1) + 1]) if 2*(2*i+1)+1 < len(u) else abs(u[2*i*2+3]) 
+        deflections.append(abs(u[2*(2*i+1)+1]))
+    max_defl = max(deflections)
+    
+    print(f"\n  Maximale Durchbiegung: {max_defl:.3f} mm")
+    print(f"  Erlaubte Durchbiegung: {max_defl_allowed:.1f} mm")
+    if max_defl <= max_defl_allowed:
+        print(f"  → ✓ BESTANDEN (Sicherheitsreserve: {(1 - max_defl/max_defl_allowed)*100:.1f}%)")
+    else:
+        print(f"  → ✗ NICHT BESTANDEN (um {max_defl - max_defl_allowed:.2f} mm überschritten)")
+        print(f"    Tipp: Obergurt/Untergurt dicker machen oder mehr Felder verwenden")
+    
+    # --- Stabkräfte und maximale Spannungen ---
+    max_tension     = max(m['force']  for m in members)  # größte Zugkraft
+    max_compression = min(m['force']  for m in members)  # größte Druckkraft
+    max_stress      = max(abs(m['stress']) for m in members)
+    
+    print(f"\n  Maximale Zugkraft:    {max_tension:.2f} N")
+    print(f"  Maximale Druckkraft:  {abs(max_compression):.2f} N")
+    print(f"  Maximale Spannung:    {max_stress:.2f} MPa")
+    print(f"  PLA Streckgrenze:     {sigma_yield:.0f} MPa")
+    
+    safety_factor = sigma_yield / max_stress if max_stress > 0 else float('inf')
+    print(f"  Sicherheitsfaktor:    {safety_factor:.2f}")
+    if safety_factor >= 2.0:
+        print(f"  → ✓ Ausreichende Sicherheit (≥ 2.0)")
+    elif safety_factor >= 1.5:
+        print(f"  → ~ Grenzwertig (≥ 1.5 aber < 2.0)")
+    else:
+        print(f"  → ✗ ZU WENIG SICHERHEIT! Stäbe müssen dicker werden.")
+    
+    # --- Gewicht ---
+    # Gewicht = Summe(Querschnittsfläche × Länge × Dichte) für alle Stäbe
+    # Das ist das Gewicht eines Fachwerkträgers (2D-Ebene)
+    # Für 3D-Druck multiplizieren wir mit der Tiefe B
+    total_volume_mm3 = sum(m['A'] * m['L'] for m in members) * 1.0  # mm³ (2D-Ebene)
+    # Anmerkung: B_mm ist die Breite des gedruckten Teils
+    # Die Stäbe haben Querschnitt t×B (Breite der ganzen Brücke)
+    # Für korrektes 3D-Gewicht: Volumen × Dichte
+    weight_g = total_volume_mm3 * rho
+    
+    print(f"\n  Materialvolumen (2D):  {total_volume_mm3:.1f} mm³")
+    print(f"  Gewicht (Fachwerk):    {weight_g:.2f} g")
+    print(f"  (Ohne Füllmaterial, nur Stäbe)")
+    
+    # --- Welcher Stab ist am meisten belastet? ---
+    max_stress_member = max(members, key=lambda m: abs(m['stress']))
+    print(f"\n  Kritischer Stab: {max_stress_member['type']}-Stab")
+    print(f"  Verbindet Knoten {max_stress_member['a']} ↔ {max_stress_member['b']}")
+    print(f"  Kraft: {max_stress_member['force']:.2f} N, Spannung: {max_stress_member['stress']:.2f} MPa")
+    
+    return max_defl, weight_g, safety_factor
+
+
+# =============================================================================
+# ABSCHNITT 9: VISUALISIERUNG MIT MATPLOTLIB
+# =============================================================================
+
+def plot_truss(nodes, members, u, N, defl, weight, sf, title="Fachwerk Brücke"):
+    """
+    Zeichnet das Fachwerk mit:
+    - Originalgeometrie (grau gestrichelt)
+    - Verformte Geometrie (überhöht, farbig nach Stabtyp)
+    - Farbkodierung nach Spannung
+    - Lastpfeile
+    - Auflager-Symbole
+    """
+    fig, axes = plt.subplots(2, 1, figsize=(14, 10))
+    
+    # Überhöhungsfaktor für Verformungsdarstellung
+    # (echte Verformung wäre kaum sichtbar)
+    max_disp = max(abs(u)) if max(abs(u)) > 0 else 1
+    scale_factor = min(30.0 / max_disp, 500)  # so skalieren dass max ca. 30mm
+    
+    # ---- Plot 1: Fachwerk mit Stabtyp-Farben ----
+    ax = axes[0]
+    ax.set_title(f"{title}\nDurchbiegung: {defl:.3f} mm | Gewicht: {weight:.1f} g | SF: {sf:.2f}", 
+                 fontsize=11, pad=10)
+    
+    colors = {'top': '#1565C0', 'bot': '#C62828', 'vert': '#555555', 'diag': '#2E7D32'}
+    labels = {'top': 'Obergurt (Druck)', 'bot': 'Untergurt (Zug)', 
+              'vert': 'Pfosten', 'diag': 'Diagonalen'}
+    
+    for m in members:
+        x1, y1 = nodes[m['a']]
+        x2, y2 = nodes[m['b']]
+        # Originale Geometrie (grau, dünn)
+        ax.plot([x1, x2], [y1, y2], color='#cccccc', linewidth=0.8, linestyle='--', zorder=1)
+        # Verformte Geometrie
+        x1d = x1 + u[2*m['a']]   * scale_factor
+        y1d = y1 + u[2*m['a']+1] * scale_factor
+        x2d = x2 + u[2*m['b']]   * scale_factor
+        y2d = y2 + u[2*m['b']+1] * scale_factor
+        lw = 2.5 if m['type'] in ('top','bot') else 1.5
+        ax.plot([x1d, x2d], [y1d, y2d], color=colors[m['type']], linewidth=lw, zorder=2)
+    
+    # Knoten zeichnen
+    for i, (x, y) in enumerate(nodes):
+        xd = x + u[2*i]   * scale_factor
+        yd = y + u[2*i+1] * scale_factor
+        ax.plot(xd, yd, 'o', color='#F57F17', markersize=5, zorder=3)
+    
+    # Lastpfeile auf belasteten Knoten
+    for i in range(N + 1):
+        node_idx = 2*i + 1
+        x_node   = nodes[node_idx][0]
+        if 100 <= x_node <= 200:
+            ax.annotate('', xy=(x_node, -2), xytext=(x_node, 5),
+                       arrowprops=dict(arrowstyle='->', color='red', lw=2))
+    ax.text(150, 7, '5 kg', ha='center', color='red', fontsize=9, fontweight='bold')
+    
+    # Auflager-Dreiecke (beidseitig eingespannt)
+    for side, x_pos in [('Links', 0), ('Rechts', L_mm)]:
+        for y_pos in [0, H_mm]:
+            ax.plot([x_pos], [y_pos], 's', color='black', markersize=8, zorder=4)
+    
+    # Legende
+    patches = [mpatches.Patch(color=c, label=l) for t,(c,l) in 
+               zip(colors.keys(), zip(colors.values(), labels.values()))]
+    ax.legend(handles=patches, loc='upper right', fontsize=8)
+    ax.set_xlabel("x [mm]")
+    ax.set_ylabel("y [mm]")
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3)
+    ax.text(5, -4, f'--- Originale Form   — Verformte Form (×{scale_factor:.0f})', 
+            fontsize=8, color='gray')
+    
+    # ---- Plot 2: Spannungsverteilung nach Stabtyp ----
+    ax2 = axes[1]
+    ax2.set_title("Spannungsverteilung in den Stäben (MPa)", fontsize=11)
+    
+    # Farbe nach Spannung (blau = Zug, rot = Druck)
+    stresses = [m['stress'] for m in members]
+    max_abs_stress = max(abs(s) for s in stresses)
+    
+    for m in members:
+        x1, y1 = nodes[m['a']]
+        x2, y2 = nodes[m['b']]
+        norm_s = m['stress'] / (max_abs_stress + 1e-10)  # normiert auf [-1, 1]
+        if norm_s >= 0:
+            col = (1-norm_s, 1-norm_s, 1.0)   # Zug → blau
+        else:
+            col = (1.0, 1+norm_s, 1+norm_s)   # Druck → rot
+        lw = 1.5 + 3.0 * abs(norm_s)
+        ax2.plot([x1, x2], [y1, y2], color=col, linewidth=lw, zorder=2)
+        # Spannungswert an Stabmitte
+        mx, my = (x1+x2)/2, (y1+y2)/2
+        if abs(m['stress']) > 0.1 * max_abs_stress:
+            ax2.text(mx, my, f"{m['stress']:.1f}", fontsize=6, ha='center', va='center',
+                    color='black', bbox=dict(boxstyle='round,pad=0.1', facecolor='white', 
+                                            alpha=0.7, edgecolor='none'))
+    
+    # Knoten
+    for x, y in nodes:
+        ax2.plot(x, y, 'o', color='#F57F17', markersize=4, zorder=3)
+    
+    ax2.set_xlabel("x [mm]")
+    ax2.set_ylabel("y [mm]")
+    ax2.set_aspect('equal')
+    ax2.grid(True, alpha=0.3)
+    
+    # Farblegende für Spannungen
+    from matplotlib.patches import Patch
+    ax2.legend(handles=[Patch(color=(0.3,0.3,1.0), label='Zug (+)'),
+                        Patch(color=(1.0,0.3,0.3), label='Druck (−)')],
+               loc='upper right', fontsize=8)
+    
+    plt.tight_layout()
+    plt.savefig('bridge_simulation.png', dpi=150, bbox_inches='tight')
+    print("\n  Abbildung gespeichert: bridge_simulation.png")
+    plt.show()
+
+
+# =============================================================================
+# ABSCHNITT 10: SVG-EXPORT FÜR 3D-DRUCKER
+# =============================================================================
+# Der 3D-Drucker braucht eine SVG-Datei mit der exakten Geometrie.
+# Wichtig:
+#   - Mindest-Wandstärke: 0.4 mm (Düsendurchmesser)
+#   - Alle Maße in mm
+#   - Nur die AUSSENSEITE des Profils (geschlossene Formen)
+#   - Verbindung zwischen Ober- und Untergurt in der Mitte (Aufgabenpflicht!)
+
+def export_svg(nodes, members, t_top, t_bot, t_diag, t_vert, H, L,
+               filename='bridge_cross_section.svg'):
+    """
+    Exportiert den Brücken-Querschnitt als SVG.
+    Stäbe werden als Rechtecke (mit korrekter Dicke) dargestellt.
+    
+    Für den 3D-Druck: Die SVG wird in der x-y Ebene gedruckt,
+    die Tiefe (50 mm) wird als Extrusion hinzugefügt.
+    """
+    # SVG-Koordinatensystem: y-Achse ist invertiert (0 = oben)
+    # Wir fügen einen Rand hinzu
+    margin = 5   # mm Rand
+    svg_w  = L + 2 * margin
+    svg_h  = H + 2 * margin
+    
+    # svgwrite verwendet mm als Einheit
+    dwg = svgwrite.Drawing(
+        filename,
+        size=(f"{svg_w}mm", f"{svg_h}mm"),
+        viewBox=f"0 0 {svg_w} {svg_h}"
+    )
+    
+    # Hilfsfunktion: mm-Koordinate → SVG-Koordinate (y invertiert)
+    def to_svg(x, y):
+        return x + margin, (H - y) + margin
+    
+    # Hintergrund (optional, für bessere Sichtbarkeit)
+    dwg.add(dwg.rect(insert=(0, 0), size=(f"{svg_w}mm", f"{svg_h}mm"),
+                     fill='white'))
+    
+    # --- Stäbe als dicke Linien zeichnen ---
+    # stroke-width entspricht der Stab-Dicke
+    type_colors = {
+        'top':  '#1565C0',
+        'bot':  '#C62828',
+        'vert': '#555555',
+        'diag': '#2E7D32'
+    }
+    type_widths = {
+        'top':  t_top,
+        'bot':  t_bot,
+        'vert': t_vert,
+        'diag': t_diag
+    }
+    
+    for m in members:
+        x1, y1 = nodes[m['a']]
+        x2, y2 = nodes[m['b']]
+        sx1, sy1 = to_svg(x1, y1)
+        sx2, sy2 = to_svg(x2, y2)
+        
+        t = type_widths[m['type']]
+        col = type_colors[m['type']]
+        
+        # Sicherheitscheck: Mindeststärke 3D-Druck
+        if t < 0.4:
+            print(f"  WARNUNG: Stab {m['type']} hat Dicke {t:.1f} mm < 0.4 mm (Druckergrenze)!")
+        
+        dwg.add(dwg.line(
+            start=(f"{sx1}mm", f"{sy1}mm"),
+            end=(f"{sx2}mm", f"{sy2}mm"),
+            stroke=col,
+            stroke_width=f"{t}mm",
+            stroke_linecap='round'   # runde Stabenden → bessere Verbindungen
+        ))
+    
+    # --- Knoten als Kreise (Verstärkung an Verbindungspunkten) ---
+    for x, y in nodes:
+        sx, sy = to_svg(x, y)
+        r = max(t_top, t_bot, t_diag, t_vert) * 0.6
+        dwg.add(dwg.circle(
+            center=(f"{sx}mm", f"{sy}mm"),
+            r=f"{r}mm",
+            fill='#F57F17',
+            stroke='none'
+        ))
+    
+    # --- Beschriftung ---
+    dwg.add(dwg.text(
+        f"Brücke {L:.0f}×{H:.0f} mm | PLA | {truss_type.upper()} Truss",
+        insert=(f"{margin}mm", f"{svg_h - 1}mm"),
+        font_size="3px",
+        fill='black'
+    ))
+    
+    dwg.save()
+    print(f"\n  SVG gespeichert: {filename}")
+    print(f"  Abmessungen: {svg_w:.1f} × {svg_h:.1f} mm")
+    print(f"  Alle Stäbe haben Mindestdicke ≥ 0.4 mm: ",
+          "✓" if all(type_widths[m['type']] >= 0.4 for m in members) else "✗ PRÜFEN!")
+
+
+# =============================================================================
+# ABSCHNITT 11: PARAMETERSTUDIE (optional)
+# =============================================================================
+# Wir testen verschiedene Querschnittsdicken und Feldanzahlen
+# um die optimale Kombination zu finden.
+
+def parameter_study():
+    """
+    Testet verschiedene Kombinationen und gibt eine Übersicht aus.
+    """
+    print("\n" + "="*60)
+    print("PARAMETERSTUDIE: Welche Konfiguration ist optimal?")
+    print("="*60)
+    print(f"{'N':>4} {'t_top':>6} {'t_bot':>6} {'t_d':>5} {'Defl':>7} {'Gew':>7} {'SF':>6} {'OK?':>6}")
+    print("-"*55)
+    
+    results = []
+    
+    for N in [6, 8, 10]:
+        for t_chord in [2.0, 2.5, 3.0]:
+            for t_web in [1.0, 1.5, 2.0]:
+                
+                nodes   = build_nodes(N, L_mm, H_mm)
+                members = build_members(N, nodes, t_chord, t_chord, t_web, t_web, truss_type)
+                K       = build_stiffness_matrix(nodes, members, E_MPa)
+                fixed, F = apply_boundary_conditions_and_load(
+                               nodes, N, F_total_N, load_width, L_mm)
+                
+                try:
+                    u = solve_system(K, F, fixed)
+                    members = compute_member_forces(members, nodes, u, E_MPa)
+                    
+                    # Durchbiegung
+                    deflections = [abs(u[2*(2*i+1)+1]) for i in range(N+1)]
+                    defl = max(deflections)
+                    
+                    # Gewicht
+                    vol  = sum(m['A'] * m['L'] for m in members)
+                    wt   = vol * rho_g_mm3
+                    
+                    # Sicherheitsfaktor
+                    max_s = max(abs(m['stress']) for m in members)
+                    sf    = sigma_yield / max_s if max_s > 0 else 999
+                    
+                    ok = "✓" if defl <= max_deflection_mm and sf >= 1.5 else "✗"
+                    
+                    print(f"{N:>4} {t_chord:>6.1f} {t_chord:>6.1f} {t_web:>5.1f} "
+                          f"{defl:>7.3f} {wt:>7.2f} {sf:>6.2f} {ok:>6}")
+                    
+                    if defl <= max_deflection_mm and sf >= 1.5:
+                        results.append((wt, N, t_chord, t_web, defl, sf))
+                
+                except np.linalg.LinAlgError:
+                    print(f"{N:>4} {t_chord:>6.1f} {t_chord:>6.1f} {t_web:>5.1f} SINGULAR")
+    
+    if results:
+        results.sort()  # nach Gewicht sortieren
+        best = results[0]
+        print(f"\n  → Leichteste funktionierende Konfiguration:")
+        print(f"     N={best[1]}, t_chord={best[2]:.1f} mm, t_web={best[3]:.1f} mm")
+        print(f"     Durchbiegung: {best[4]:.3f} mm, Gewicht: {best[0]:.2f} g, SF: {best[5]:.2f}")
+    else:
+        print("\n  → Keine Konfiguration erfüllt alle Anforderungen!")
+        print("    Größere Querschnitte oder andere Höhe versuchen.")
+
+
+# =============================================================================
+# ABSCHNITT 12: HAUPTPROGRAMM
+# =============================================================================
+
+if __name__ == "__main__":
+    
+    print("="*60)
+    print("FACHWERK-BRÜCKEN-SIMULATION")
+    print("="*60)
+    print(f"  Brücke:    L = {L_mm} mm, H = {H_mm} mm, B = {B_mm} mm")
+    print(f"  Fachwerk:  {truss_type.upper()} Truss, N = {N_panels} Felder")
+    print(f"  Material:  PLA, E = {E_MPa} MPa, σ_yield = {sigma_yield} MPa")
+    print(f"  Last:      {F_total_N:.2f} N (= 5 kg), verteilt auf {load_width} mm")
+    print(f"  Ziel:      Durchbiegung ≤ {max_deflection_mm} mm")
+    
+    # Schritt 1: Knoten erzeugen
+    print("\n[1] Knoten erzeugen...")
+    nodes = build_nodes(N_panels, L_mm, H_mm)
+    print(f"    {len(nodes)} Knoten erzeugt")
+    
+    # Schritt 2: Stäbe erzeugen
+    print("[2] Stäbe erzeugen...")
+    members = build_members(N_panels, nodes, t_top, t_bot, t_diag, t_vert, truss_type)
+    print(f"    {len(members)} Stäbe erzeugt")
+    
+    # Schritt 3: Steifigkeitsmatrix
+    print("[3] Steifigkeitsmatrix aufbauen...")
+    K = build_stiffness_matrix(nodes, members, E_MPa)
+    print(f"    Matrix-Größe: {K.shape}")
+    
+    # Schritt 4: Randbedingungen und Last
+    print("[4] Randbedingungen und Last aufbringen...")
+    fixed_dofs, F_vec = apply_boundary_conditions_and_load(
+        nodes, N_panels, F_total_N, load_width, L_mm)
+    print(f"    {len(fixed_dofs)} DOFs fixiert (beidseitige Einspannung)")
+    
+    # Schritt 5: Gleichungssystem lösen
+    print("[5] Gleichungssystem lösen...")
+    u = solve_system(K, F_vec, fixed_dofs)
+    print(f"    Maximale Verschiebung: {max(abs(u)):.4f} mm")
+    
+    # Schritt 6: Stabkräfte berechnen
+    print("[6] Stabkräfte und Spannungen berechnen...")
+    members = compute_member_forces(members, nodes, u, E_MPa)
+    
+    # Schritt 7: Ergebnisse auswerten
+    defl, weight, sf = evaluate_results(
+        nodes, members, u, N_panels, sigma_yield, rho_g_mm3, B_mm, max_deflection_mm)
+    
+    # Schritt 8: Visualisierung
+    print("\n[8] Visualisierung erstellen...")
+    plot_truss(nodes, members, u, N_panels, defl, weight, sf,
+               title=f"{truss_type.upper()} Truss Brücke (300×{H_mm:.0f} mm, PLA)")
+    
+    # Schritt 9: SVG exportieren
+    print("[9] SVG für 3D-Druck exportieren...")
+    export_svg(nodes, members, t_top, t_bot, t_diag, t_vert, H_mm, L_mm)
+    
+    # Schritt 10 (optional): Parameterstudie
+    print("\n[10] Parameterstudie starten? (kann etwas dauern)")
+    # Auskommentieren um die Studie zu überspringen:
+    parameter_study()
+    
+    print("\n" + "="*60)
+    print("FERTIG!")
+    print("="*60)
+    print("Dateien:")
+    print("  bridge_simulation.png    → Visualisierung")
+    print("  bridge_cross_section.svg → Für 3D-Drucker")
+    print("\nNächste Schritte:")
+    print("  1. SVG in Inkscape öffnen und als DXF/STL exportieren")
+    print("  2. Im Slicer die Tiefe (50 mm) als Extrusion einstellen")
+    print("  3. Parameter oben anpassen bis Durchbiegung ≤ 3 mm und")
+    print("     Gewicht minimal ist")
