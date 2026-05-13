@@ -7,6 +7,7 @@ import config
 from core.geometry import Geometry
 from simulations.solve_truss import solve_truss
 from simulations.solve_fem import solve_fem_adaptive, FEMResult
+#from simulations.solve_fem_skfem import solve_fem_adaptive, FEMResult
 from gui.bridge_canvas import render_geometry
 from export.svg_parser import parse_svg
 from export.svg_exporter import OUTPUT_DIR
@@ -235,10 +236,7 @@ def _fem_worker():
     """Runs in a background thread so the GUI stays responsive."""
     try:
         result, history = solve_fem_adaptive(
-            _s.geometry,
-            elastic_modulus_mpa=2500.0,
-            poisson_ratio=0.35,
-            point_load_newtons=5.0 * 9.81,
+            geometry=_s.geometry
         )
         _s.fem_result = result
 
