@@ -2,7 +2,7 @@ import numpy as np
 
 import config
 
-def solve_truss(truss, forces=None, fixed_dofs=None, E=config.FEM_ELASTIC_MODULUS_MPA):
+def solve_truss(truss, forces=None, fixed_dofs=None, E=config.PLA_ELASTIC_MODULUS_MPA):
     """
     Solves a 2D truss.
 
@@ -19,26 +19,10 @@ def solve_truss(truss, forces=None, fixed_dofs=None, E=config.FEM_ELASTIC_MODULU
     forces_in_edges : list[float]
     """
 
-    xs = [n.x for n in truss.nodes]
-    min_x, max_x = min(xs), max(xs)
-    mid_x = 0.5 * (min_x + max_x)
-    bottom_nodes = [i for i, n in enumerate(truss.nodes) if n.y == 0]
-    mid_node = min(bottom_nodes, key=lambda i: abs(truss.nodes[i].x - mid_x))
-
     if forces is None:
-        # use standard-force (5kg in the middle)
-        forces = {mid_node: (0.0, -config.LOAD_FORCE)}
-
+        forces = _get_standard_forces(truss)
     if fixed_dofs is None:
-        # use standard boundary-conditions
-        left = min(bottom_nodes, key=lambda i: truss.nodes[i].x)
-        right = max(bottom_nodes, key=lambda i: truss.nodes[i].x)
-
-        fixed_dofs = [
-            (left, 0), (left, 1),
-            (right, 0), (right, 1)
-        ]
-
+        fixed_dofs = _get_standard_fixed_dofs(truss)
 
     nodes = truss.nodes
     edges = truss.edges
@@ -133,4 +117,38 @@ def solve_truss(truss, forces=None, fixed_dofs=None, E=config.FEM_ELASTIC_MODULU
     truss.forces = edge_forces
 
     return displacements, edge_forces
+
+
+# ----------------- Helpers ------------------------------
+def _get_standard_forces(truss):
+    """
+    A 5kg weight is placed on top of the bridge in the middle
+    """
+    xs = [n.x for n in truss.nodes]
+    min_x, max_x = min(xs), max(xs)
+    mid_x = 0.5 * (min_x + max_x)
+    top_nodes = [i for i, n in enumerate(truss.nodes) if n.y == config.BRIDGE_HEIGHT]
+    mid_node = min(top_nodes, key=lambda i: abs(truss.nodes[i].x - mid_x))
+
+    # apply the 5kg mass at the top-middle node
+    forces = {mid_node: (0.0, -config.LOAD_FORCE)}
+    return forces
+
+
+def _get_standard_fixed_dofs(truss):
+    """
+    The bridge is fixed to the left and right sides with screws from below.
+
+    Therefore, we assume that the bottom-left and bottom-right nodes are fixed
+    """
+
+    bottom_nodes = [i for i, n in enumerate(truss.nodes) if n.y == 0]
+    left = min(bottom_nodes, key=lambda i: truss.nodes[i].x)
+    right = max(bottom_nodes, key=lambda i: truss.nodes[i].x)
+
+    fixed_dofs = [
+        (left, 0), (left, 1), # x-direction and y-direction
+        (right, 0), (right, 1)
+    ]
+    return fixed_dofs
 

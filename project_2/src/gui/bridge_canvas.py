@@ -79,7 +79,7 @@ def render_truss(
 
     import numpy as np
 
-    # --- bounding box ---
+    # bounding box
     xs = [n.x for n in truss.nodes]
     ys = [n.y for n in truss.nodes]
 
@@ -99,7 +99,7 @@ def render_truss(
     offset_x = pad_x + (draw_w - geo_w * scale) / 2
     offset_y = pad_y + (draw_h - geo_h * scale) / 2
 
-    # --- image ---
+    # image
     img = np.zeros((canvas_h, canvas_w, 4), dtype=float)
 
     # background
@@ -110,7 +110,7 @@ def render_truss(
         py = int(canvas_h - 1 - (offset_y + (y - min_y) * scale))
         return px, py
 
-    # --- draw edges (simple line rasterization) ---
+    # draw edges (simple line rasterization)
     for e in truss.edges:
         n1 = truss.nodes[e.i]
         n2 = truss.nodes[e.j]
@@ -141,7 +141,7 @@ def render_truss(
                 err += dx
                 y += sy
 
-    # --- draw nodes ---
+    # draw nodes
     for n in truss.nodes:
         px, py = world_to_px(n.x, n.y)
         for dx in range(-2, 3):

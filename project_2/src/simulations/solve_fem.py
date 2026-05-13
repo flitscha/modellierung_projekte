@@ -9,14 +9,13 @@ from scipy.sparse import eye as speye
 from core.geometry import Geometry
 from config import (
     BRIDGE_DEPTH,
-    FEM_ELASTIC_MODULUS_MPA,
-    FEM_POISSON_RATIO,
-    FEM_POINT_LOAD_NEWTONS,
+    PLA_ELASTIC_MODULUS_MPA,
+    PLA_POISSON_RATIO,
+    LOAD_FORCE,
     FEM_INITIAL_NX,
     FEM_MAX_NX,
     FEM_CONVERGENZ_TOL,
     FEM_LOAD_SPREAD_NODES,
-    FEM_STIFFNESS_REGULARIZATION,
 )
 
 
@@ -30,30 +29,31 @@ class FEMResult:
     cell_width: float
     cell_height: float
 
-    material_mask: np.ndarray    # (nx, ny) bool — True where material exists
+    material_mask: np.ndarray # (nx, ny) bool - True where material exists
 
-    displacement_x: np.ndarray  # (nx, ny) horizontal displacement per cell
-    displacement_y: np.ndarray  # (nx, ny) vertical displacement per cell
+    displacement_x: np.ndarray # (nx, ny) horizontal displacement per cell
+    displacement_y: np.ndarray # (nx, ny) vertical displacement per cell
 
-    stress_11: np.ndarray        # (nx, ny) normal stress in x
-    stress_22: np.ndarray        # (nx, ny) normal stress in y
-    stress_12: np.ndarray        # (nx, ny) shear stress
+    stress_11: np.ndarray # (nx, ny) normal stress in x
+    stress_22: np.ndarray # (nx, ny) normal stress in y
+    stress_12: np.ndarray # (nx, ny) shear stress
 
     max_deflection_mm: float
-    von_mises_stress: np.ndarray  # (nx, ny) Von Mises equivalent stress
+    von_mises_stress: np.ndarray # (nx, ny) Von Mises equivalent stress
 
 
-# Main solver entry point.
-# The geometry is rasterized into an (nx x ny) grid of quad elements.
-# Only cells that contain material are added to the stiffness matrix.
 def solve_fem(
     geometry: Geometry,
     nx: int,
     ny: int,
-    elastic_modulus_mpa: float = FEM_ELASTIC_MODULUS_MPA,
-    poisson_ratio: float = FEM_POISSON_RATIO,
-    point_load_newtons: float = FEM_POINT_LOAD_NEWTONS,
+    elastic_modulus_mpa: float = PLA_ELASTIC_MODULUS_MPA,
+    poisson_ratio: float = PLA_POISSON_RATIO,
+    point_load_newtons: float = LOAD_FORCE,
 ) -> FEMResult:
+    """
+    The geometry is rasterized into an (nx x ny) grid of quad elements.
+    Only cells that contain material are added to the stiffness matrix
+    """
 
     length, height = _get_bridge_dimensions(geometry)
     dx, dy = length / nx, height / ny
@@ -84,18 +84,19 @@ def solve_fem(
     )
 
 
-# Adaptive solver. Repeats the simulation with increasing grid resolution.
-# Stops early when the max deflection changes by less than `tol` (relative).
-# This ensures the result does not depend on grid resolution.
 def solve_fem_adaptive(
     geometry: Geometry,
-    elastic_modulus_mpa: float = FEM_ELASTIC_MODULUS_MPA,
-    poisson_ratio: float = FEM_POISSON_RATIO,
-    point_load_newtons: float = FEM_POINT_LOAD_NEWTONS,
+    elastic_modulus_mpa: float = PLA_ELASTIC_MODULUS_MPA,
+    poisson_ratio: float = PLA_POISSON_RATIO,
+    point_load_newtons: float = LOAD_FORCE,
     initial_nx: int = FEM_INITIAL_NX,
     max_nx: int = FEM_MAX_NX,
     tol: float = FEM_CONVERGENZ_TOL,
 ) -> Tuple[FEMResult, List[Tuple[int, int, float]]]:
+    """
+    Adaptive solver. Repeats the simulation with increasing grid resolution.
+    Stops early when the max deflection changes by less than 'tol'
+    """
 
     length, height = _get_bridge_dimensions(geometry)
     history: List[Tuple[int, int, float]] = []
@@ -121,28 +122,35 @@ def solve_fem_adaptive(
     return result, history
 
 
-# Returns (length, height) from the geometry bounding box.
 def _get_bridge_dimensions(geometry: Geometry) -> Tuple[float, float]:
+    """
+    Returns (length, height) from the geometry bounding box.
+    """
     min_x, min_y, max_x, max_y = geometry.bounding_box()
     return max_x - min_x, max_y - min_y
 
 
-# Returns a bool mask of shape (nx, ny).
-# A cell is True if its center point is inside the geometry.
-# Vectorised: geometry.contains() now accepts full numpy arrays.
-def _build_material_mask(
-    geometry: Geometry, nx: int, ny: int, dx: float, dy: float
-) -> np.ndarray:
-    xs = (np.arange(nx) + 0.5) * dx   # (nx,)
-    ys = (np.arange(ny) + 0.5) * dy   # (ny,)
-    xs_grid, ys_grid = np.meshgrid(xs, ys, indexing='ij')  # (nx, ny)
+def _build_material_mask(geometry: Geometry, nx: int, ny: int, dx: float, dy: float) -> np.ndarray:
+    """
+    Returns a bool mask of shape (nx, ny).
+    A cell is True if its center point is inside the geometry.
+    """
+    xs = (np.arange(nx) + 0.5) * dx # (nx,)
+    ys = (np.arange(ny) + 0.5) * dy # (ny,)
+
+    # calculate all combinations of xs and ys, using np.meshgrid
+    xs_grid, ys_grid = np.meshgrid(xs, ys, indexing='ij') # (nx, ny)
+
+    # like this, everything is vectorized. We avoid slow python-loops
     return geometry.contains(xs_grid, ys_grid).astype(bool)
 
 
-# Builds the plane stress material matrix D.
-# D maps strains to stresses: stress = D @ strain.
-# Assumes isotropic linear elastic material.
 def _plane_stress_material_matrix(E: float, nu: float) -> np.ndarray:
+    """
+    Builds the plane stress material matrix D.
+    D maps strains to stresses: stress = D @ strain.
+    Assumes isotropic linear elastic material.
+    """
     return (E / (1 - nu**2)) * np.array([
         [1, nu, 0],
         [nu, 1, 0],
@@ -150,10 +158,12 @@ def _plane_stress_material_matrix(E: float, nu: float) -> np.ndarray:
     ])
 
 
-# Computes the B matrix at a single Gauss point (xi, eta).
-# B maps element node displacements to strains: strain = B @ u_element.
-# Shape is (3, 8) for a Quad4 element with 4 nodes and 2 DOFs each.
 def _quad4_B_matrix_at_gauss_point(xi: float, eta: float, dx: float, dy: float) -> np.ndarray:
+    """
+    Computes the B matrix at a single Gauss point (xi, eta).
+    B maps element node displacements to strains: strain = B @ u_element.
+    Shape is (3, 8) for a Quad4 element with 4 nodes and 2 DOFs each.
+    """
     # Shape function derivatives in natural coordinates.
     dN_dxi  = 0.25 * np.array([[-(1-eta), (1-eta), (1+eta), -(1+eta)]])
     dN_deta = 0.25 * np.array([[-(1-xi), -(1+xi), (1+xi), (1-xi)]])
@@ -165,31 +175,35 @@ def _quad4_B_matrix_at_gauss_point(xi: float, eta: float, dx: float, dy: float) 
     # Assemble B using Voigt notation: [eps_xx, eps_yy, gamma_xy].
     B = np.zeros((3, 8))
     for i in range(4):
-        B[0, 2*i]     = dN_xy[0, i]  # eps_xx = du/dx
-        B[1, 2*i + 1] = dN_xy[1, i]  # eps_yy = dv/dy
-        B[2, 2*i]     = dN_xy[1, i]  # gamma_xy = du/dy + dv/dx
+        B[0, 2*i]     = dN_xy[0, i] # eps_xx = du/dx
+        B[1, 2*i + 1] = dN_xy[1, i] # eps_yy = dv/dy
+        B[2, 2*i]     = dN_xy[1, i] # gamma_xy = du/dy + dv/dx
         B[2, 2*i + 1] = dN_xy[0, i]
     return B
 
 
-# Computes the (8, 8) element stiffness matrix for one Quad4 cell.
-# Uses 2x2 Gauss integration: Ke = sum_gp( B^T D B detJ ).
 def _quad4_element_stiffness(dx: float, dy: float, D: np.ndarray) -> np.ndarray:
+    """
+    Computes the (8, 8) element stiffness matrix for one Quad4 cell.
+    Uses 2x2 Gauss integration: Ke = sum_gp( B^T D B detJ ).
+    """
     gauss_points = [-1 / np.sqrt(3), 1 / np.sqrt(3)]
     Ke = np.zeros((8, 8))
-    detJ = (dx * dy) / 4  # constant for an axis-aligned rectangle
+    detJ = (dx * dy) / 4 # constant for an axis-aligned rectangle
 
     for xi in gauss_points:
         for eta in gauss_points:
             B = _quad4_B_matrix_at_gauss_point(xi, eta, dx, dy)
-            Ke += B.T @ D @ B * detJ * BRIDGE_DEPTH  # Gauss weight is 1
+            Ke += B.T @ D @ B * detJ * BRIDGE_DEPTH # Gauss weight is 1
 
     return Ke
 
 
-# B matrix evaluated at the cell center (xi=0, eta=0).
-# Used for stress recovery after solving. Gives constant strain per element.
 def _quad4_B_matrix_cell_center(dx: float, dy: float) -> np.ndarray:
+    """
+    B matrix evaluated at the cell center (xi=0, eta=0).
+    Used for stress recovery after solving. Gives constant strain per element.
+    """
     return 0.5 * np.array([
         [-1/dx, 0, 1/dx, 0, 1/dx, 0, -1/dx, 0],
         [0, -1/dy, 0, -1/dy, 0, 1/dy, 0, 1/dy],
@@ -197,48 +211,46 @@ def _quad4_B_matrix_cell_center(dx: float, dy: float) -> np.ndarray:
     ])
 
 
-# Returns the global node index for grid position (i, j).
 def _node_index(i: int, j: int, nnx: int) -> int:
+    # Returns the global node index for grid position (i, j).
     return j * nnx + i
 
 
-# Returns the global DOF index. component: 0 = u (horizontal), 1 = v (vertical).
 def _dof_index(node: int, component: int) -> int:
+    # Returns the global DOF index. component: 0 = u (horizontal), 1 = v (vertical).
     return 2 * node + component
 
 
-# Assembles the global stiffness matrix K and load vector f.
-# Only material cells contribute to K.
-# Uses COO assembly: collects all (row, col, val) triplets at once and lets
-# scipy sum duplicates on conversion to CSR. No Python loop over elements.
 def _assemble_global_system(
     material_mask: np.ndarray, nx: int, ny: int, dx: float, dy: float, D: np.ndarray
 ) -> Tuple[csr_matrix, np.ndarray]:
-
+    """
+    Assembles the global stiffness matrix K and load vector f.
+    """
     nnx   = nx + 1
     n_dof = 2 * nnx * (ny + 1)
-    f     = np.zeros(n_dof)
+    f = np.zeros(n_dof)
 
-    Ke = _quad4_element_stiffness(dx, dy, D)  # same for every cell
+    Ke = _quad4_element_stiffness(dx, dy, D) # same for every cell
 
     # Indices of all material cells.
-    ci, cj = np.where(material_mask)   # ci = x-index, cj = y-index
+    ci, cj = np.where(material_mask) # ci = x-index, cj = y-index
     n_elem = len(ci)
 
     if n_elem == 0:
         return csr_matrix((n_dof, n_dof)), f
 
     # Global node indices for the four corners of each element (n_elem each).
-    n0 = cj * nnx + ci          # bottom-left  (i,   j)
-    n1 = cj * nnx + (ci + 1)    # bottom-right (i+1, j)
-    n2 = (cj + 1) * nnx + (ci + 1)    # top-right    (i+1, j+1)
-    n3 = (cj + 1) * nnx + ci          # top-left     (i,   j+1)
+    n0 = cj * nnx + ci # bottom-left  (i, j)
+    n1 = cj * nnx + (ci + 1) # bottom-right (i+1, j)
+    n2 = (cj + 1) * nnx + (ci + 1) # top-right (i+1, j+1)
+    n3 = (cj + 1) * nnx + ci # top-left (i, j+1)
 
     # Element DOF array, shape (n_elem, 8): [u0,v0, u1,v1, u2,v2, u3,v3]
     elem_dofs = np.stack([
         2*n0, 2*n0+1, 2*n1, 2*n1+1,
         2*n2, 2*n2+1, 2*n3, 2*n3+1,
-    ], axis=1)  # (n_elem, 8)
+    ], axis=1) # (n_elem, 8)
 
     # Build COO triplets for all 8x8 Ke entries across all elements.
     # rows_e[e,a,b] = global row DOF of element e for Ke entry (a,b).
@@ -250,24 +262,26 @@ def _assemble_global_system(
     return K.tocsr(), f
 
 
-# Adds a small value to the diagonal to avoid singular matrices.
-# Uses speye (sparse identity) — NOT np.eye, which would allocate a dense
-# n x n matrix and use gigabytes of RAM for large grids.
 def _regularize(K: csr_matrix) -> csr_matrix:
-    return K + FEM_STIFFNESS_REGULARIZATION * speye(K.shape[0], format='csr')
+    # Adds a small value to the diagonal to avoid singular matrices
+    return K + 1e-8 * speye(K.shape[0], format='csr')
 
 
-# Sets a single DOF to a fixed value (Dirichlet boundary condition).
-# The row is replaced with an identity row and f[idx] is set to value.
 def _fix_dof(K: lil_matrix, f: np.ndarray, idx: int, value: float = 0.0) -> None:
+    """
+    Sets a single DOF to a fixed value (Dirichlet boundary condition).
+    The row is replaced with an identity row and f[idx] is set to value.
+    """
     K[idx, :] = 0
     K[idx, idx] = 1
     f[idx] = value
 
 
-# Fixes both bottom corner nodes (u=0, v=0).
-# This models simple supports at each end of the bridge.
 def _apply_boundary_conditions(K: csr_matrix, f: np.ndarray, nx: int, ny: int) -> csr_matrix:
+    """
+    Fixes both bottom corner nodes (u=0, v=0).
+    We can do it this way because in our bridge-designs, the corners are always solid
+    """
     nnx = nx + 1
     K = K.tolil()
 
@@ -279,22 +293,24 @@ def _apply_boundary_conditions(K: csr_matrix, f: np.ndarray, nx: int, ny: int) -
     return K.tocsr()
 
 
-# Applies a downward point load at the bridge center.
-# The load is spread across FEM_LOAD_SPREAD_NODES nodes for numerical stability.
+
 def _apply_point_load(f: np.ndarray, nx: int, ny: int, total_load_n: float) -> None:
+    # Applies a downward point load at the bridge center top
     nnx = nx + 1
     mid = nx // 2
     half = FEM_LOAD_SPREAD_NODES // 2
     load_per_node = total_load_n / FEM_LOAD_SPREAD_NODES
 
     for i in range(mid - half, mid - half + FEM_LOAD_SPREAD_NODES):
-        n = _node_index(i, 0, nnx)
-        f[_dof_index(n, 1)] -= load_per_node  # negative = downward
+        n = _node_index(i, ny, nnx)
+        f[_dof_index(n, 1)] -= load_per_node
 
 
-# Solves K @ u = f using a sparse direct solver.
-# Raises an error if the result contains NaN (indicates a singular matrix).
 def _solve_linear_system(K: csr_matrix, f: np.ndarray) -> np.ndarray:
+    """
+    Solves K @ u = f using a sparse direct solver.
+    Raises an error if the result contains NaN
+    """
     u = spsolve(K, f)
     if not np.all(np.isfinite(u)):
         raise RuntimeError(
@@ -305,10 +321,6 @@ def _solve_linear_system(K: csr_matrix, f: np.ndarray) -> np.ndarray:
     return u
 
 
-# Extracts displacement and stress fields from the solution vector u.
-# Displacement per cell is the average of its four corner node values.
-# Stress is computed as: stress = D @ B @ u_element.
-# Vectorised: no Python loop over cells.
 def _extract_fields(
     u: np.ndarray,
     material_mask: np.ndarray,
@@ -316,12 +328,17 @@ def _extract_fields(
     dx: float, dy: float,
     D: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Extracts displacement and stress fields from the solution vector u.
+    Displacement per cell is the average of its four corner node values.
+    Stress is computed as: stress = D @ B @ u_element.
+    """
 
     nnx = nx + 1
-    B   = _quad4_B_matrix_cell_center(dx, dy)   # (3, 8)
+    B = _quad4_B_matrix_cell_center(dx, dy) # (3, 8)
 
-    Ux  = np.zeros((nx, ny))
-    Uy  = np.zeros((nx, ny))
+    Ux = np.zeros((nx, ny))
+    Uy = np.zeros((nx, ny))
     s11 = np.zeros((nx, ny))
     s22 = np.zeros((nx, ny))
     s12 = np.zeros((nx, ny))
@@ -329,8 +346,8 @@ def _extract_fields(
     ci, cj = np.where(material_mask)
 
     # Node indices for the four corners of each material cell.
-    n0 = cj       * nnx + ci
-    n1 = cj       * nnx + (ci + 1)
+    n0 = cj * nnx + ci
+    n1 = cj * nnx + (ci + 1)
     n2 = (cj + 1) * nnx + (ci + 1)
     n3 = (cj + 1) * nnx + ci
 
@@ -356,14 +373,14 @@ def _extract_fields(
     return Ux, Uy, s11, s22, s12
 
 
-# Computes Von Mises stress from the stress components.
-# Formula: sqrt(s11^2 - s11*s22 + s22^2 + 3*s12^2).
-# np.maximum(..., 0) prevents sqrt of tiny negative values from float rounding.
-# Non-material cells are set to zero.
 def _compute_von_mises(
     s11: np.ndarray, s22: np.ndarray, s12: np.ndarray, material_mask: np.ndarray
 ) -> np.ndarray:
+    """
+    Computes Von Mises stress from the stress components.
+    Formula: sqrt(s11^2 - s11*s22 + s22^2 + 3*s12^2).
+    """
     vm = np.sqrt(np.maximum(s11**2 - s11 * s22 + s22**2 + 3 * s12**2, 0.0))
-    vm[~material_mask] = 0.0
+    vm[~material_mask] = 0.0 # Non-material cells are set to zero.
     return vm
 

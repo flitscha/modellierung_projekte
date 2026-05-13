@@ -1,13 +1,3 @@
-"""
-gui/tabs/optimization.py
-========================
-Optimisation tab — pure GUI logic.
-All optimisation logic lives in optimization/solver.py.
-
-Canvas is only redrawn at the end of a run (on_done), not on every
-progress update, so the live loss-curve animation stays smooth.
-"""
-
 import dearpygui.dearpygui as dpg
 
 from gui.bridge_canvas import render_geometry
@@ -23,21 +13,17 @@ _TAG_LOSS_SERIES = "opt_loss_series"
 
 class _State:
     def __init__(self):
-        self.design          = None
+        self.design = None
         self.designs_by_name = {}
-        self.texture_tag     = None
+        self.texture_tag = None
         self.run: OptimisationRun | None = None
 
-        self.pending_progress: ProgressUpdate | None    = None
+        self.pending_progress: ProgressUpdate | None = None
         self.pending_done: OptimisationResult | None = None
 
 
 _s = _State()
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Public API
-# ═══════════════════════════════════════════════════════════════════════════
 
 def build(parent_tag: str, designs: list):
     _s.designs_by_name = {d.name: d for d in designs}
@@ -62,18 +48,14 @@ def tick():
         _s.pending_progress = None
         _update_plot(progress)
         _update_best_panel(progress)
-        # ← no canvas update here
 
     done = _s.pending_done
     if done is not None:
         _s.pending_done = None
-        _on_run_finished(done)   # canvas drawn here
+        _on_run_finished(done)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Layout builders
-# ═══════════════════════════════════════════════════════════════════════════
-
+# ----------------- Layout builders ----------------------------
 def _build_top_bar(designs):
     with dpg.group(horizontal=True):
         dpg.add_text("Design:")
@@ -84,10 +66,10 @@ def _build_top_bar(designs):
             callback=lambda s, v: _select_design(_s.designs_by_name[v]),
         )
         dpg.add_spacer(width=30)
-        dpg.add_button(label="▶  Start", tag="opt_btn_start",
+        dpg.add_button(label="Start", tag="opt_btn_start",
                        width=110, height=32, callback=_on_start)
         dpg.add_spacer(width=8)
-        dpg.add_button(label="■  Stop", tag="opt_btn_stop",
+        dpg.add_button(label="Stop", tag="opt_btn_stop",
                        width=110, height=32, callback=_on_stop, enabled=False)
         dpg.add_spacer(width=30)
         dpg.add_text("Status:", color=(160, 160, 180))
@@ -137,15 +119,12 @@ def _build_best_result_panel():
     dpg.add_image(_s.texture_tag, tag="opt_canvas", width=CANVAS_W, height=CANVAS_H)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Control callbacks
-# ═══════════════════════════════════════════════════════════════════════════
-
+# -------------- Logic -----------------------
 def _select_design(design):
     if _s.run is not None and _s.run.running:
         _s.run.stop(join_timeout=2.0)
     _s.design = design
-    _s.run    = None
+    _s.run = None
     _reset_ui()
     _set_status("idle", (160, 160, 180))
     dpg.configure_item("opt_btn_start", enabled=True)
@@ -156,7 +135,7 @@ def _on_start():
     if _s.design is None or (_s.run is not None and _s.run.running):
         return
     _reset_ui()
-    _set_status("running …", (100, 220, 100))
+    _set_status("running...", (100, 220, 100))
     dpg.configure_item("opt_btn_start", enabled=False)
     dpg.configure_item("opt_btn_stop", enabled=True)
 
@@ -174,10 +153,6 @@ def _on_stop():
     _set_status("stopping …", (255, 200, 10))
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Worker-thread callbacks
-# ═══════════════════════════════════════════════════════════════════════════
-
 def _on_progress(update: ProgressUpdate):
     _s.pending_progress = update
 
@@ -185,10 +160,6 @@ def _on_progress(update: ProgressUpdate):
 def _on_done(result: OptimisationResult):
     _s.pending_done = result
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# GUI updates  (main thread only)
-# ═══════════════════════════════════════════════════════════════════════════
 
 def _update_plot(progress: ProgressUpdate):
     if _s.run is None:
@@ -204,16 +175,15 @@ def _update_plot(progress: ProgressUpdate):
 
 def _update_best_panel(progress: ProgressUpdate):
     r = progress.best_result
-    feasible   = r["feasible"]
+    feasible = r["feasible"]
     defl_color = (100, 220, 100) if feasible else (255, 100, 100)
 
     dpg.set_value("opt_best_loss", f"{r['loss']:.4f}")
     dpg.set_value("opt_best_deflection", f"{r['deflection_mm']:.3f} mm")
     dpg.configure_item("opt_best_deflection", color=defl_color)
     dpg.set_value("opt_best_mass", f"{r['mass_g']:.1f} g")
-    dpg.set_value("opt_best_feasible", "✓ yes" if feasible else "✗ no")
-    dpg.configure_item("opt_best_feasible",
-                       color=(100, 220, 100) if feasible else (255, 100, 100))
+    dpg.set_value("opt_best_feasible", "yes" if feasible else "no")
+    dpg.configure_item("opt_best_feasible", color=(100, 220, 100) if feasible else (255, 100, 100))
 
     dpg.delete_item("opt_best_params_group", children_only=True)
     for name, val in progress.best_params.items():
@@ -225,7 +195,7 @@ def _update_best_panel(progress: ProgressUpdate):
 
 def _on_run_finished(result: OptimisationResult):
     if result.success:
-        _set_status("done ✓", (100, 220, 100))
+        _set_status("done", (100, 220, 100))
     elif result.message == "stopped by user":
         _set_status("stopped", (255, 200, 10))
     else:
@@ -234,20 +204,17 @@ def _on_run_finished(result: OptimisationResult):
     dpg.configure_item("opt_btn_start", enabled=True)
     dpg.configure_item("opt_btn_stop", enabled=False)
 
-    # draw canvas only once, here
+    # draw canvas
     if result.best_params is not None and _s.design is not None:
         try:
-            geometry   = _s.design.build_geometry(result.best_params)
+            geometry = _s.design.build_geometry(result.best_params)
             pixel_data = render_geometry(geometry, CANVAS_W, CANVAS_H)
             dpg.set_value(_s.texture_tag, pixel_data)
         except Exception:
             pass
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Helpers
-# ═══════════════════════════════════════════════════════════════════════════
-
+# ----------------- Helpers ------------------------------
 def _reset_ui():
     if dpg.does_item_exist(_TAG_LOSS_SERIES):
         dpg.set_value(_TAG_LOSS_SERIES, [[], []])
@@ -266,8 +233,7 @@ def _reset_ui():
 def _create_texture() -> int:
     blank = [0.12, 0.12, 0.16, 1.0] * (CANVAS_W * CANVAS_H)
     with dpg.texture_registry():
-        return dpg.add_dynamic_texture(width=CANVAS_W, height=CANVAS_H,
-                                       default_value=blank)
+        return dpg.add_dynamic_texture(width=CANVAS_W, height=CANVAS_H, default_value=blank)
 
 
 def _sync_canvas_width():
@@ -279,3 +245,4 @@ def _set_status(msg: str, color: tuple):
     if dpg.does_item_exist("opt_status"):
         dpg.set_value("opt_status", msg)
         dpg.configure_item("opt_status", color=color)
+

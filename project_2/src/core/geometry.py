@@ -1,18 +1,3 @@
-"""
-geometry.py
-===========
-Geometrie-Primitive für die Brückensimulation.
-
-Design-Prinzip: contains(px, py) akzeptiert sowohl skalare float-Werte
-als auch numpy-Arrays beliebiger Form. Das ermöglicht:
-  - Vektorisierte FEM-Rasterisierung (meshgrid übergeben)
-  - Vektorisierte Gewichtsschätzung (kein Python-Loop mehr)
-  - Rückwärtskompatibilität mit altem skalarem Code
-
-Intern wird überall & / | statt and / or verwendet – das funktioniert
-für bool-Arrays und bool-Skalare gleichermaßen.
-"""
-
 from __future__ import annotations
 
 import math
@@ -23,23 +8,10 @@ import numpy as np
 import config
 
 
-# Typ-Alias für skalare oder Array-Eingaben
 Scalar_or_Array = Union[float, np.ndarray]
 
 
-# ---------------------------------------------------------------------------
-# Basisklasse
-# ---------------------------------------------------------------------------
-
 class Shape:
-    """
-    Abstrakte Basisklasse für alle Geometrie-Primitive.
-
-    Unterklassen müssen implementieren:
-      - contains(px, py)  → bool oder bool-Array
-      - bounding_box()    → (min_x, min_y, max_x, max_y)
-    """
-
     def contains(self, px: Scalar_or_Array, py: Scalar_or_Array) -> Scalar_or_Array:
         raise NotImplementedError
 
@@ -47,24 +19,11 @@ class Shape:
         raise NotImplementedError
 
 
-# ---------------------------------------------------------------------------
-# Rechteck
-# ---------------------------------------------------------------------------
-
 class Rectangle(Shape):
-    """
-    Achsenparalleles Rechteck.
-
-    Parameter
-    ---------
-    x, y    : untere linke Ecke (mm)
-    width   : Breite (mm)
-    height  : Höhe (mm)
-    """
-
     def __init__(self, x: float, y: float, width: float, height: float):
-        self.x      = x
-        self.y      = y
+        # (x, y) is the bottom-left corner of the rectangle
+        self.x = x
+        self.y = y
         self.width  = width
         self.height = height
 
@@ -78,53 +37,30 @@ class Rectangle(Shape):
         return self.x, self.y, self.x + self.width, self.y + self.height
 
 
-# ---------------------------------------------------------------------------
-# Parallelogramm
-# ---------------------------------------------------------------------------
-
 class Parallelogram(Shape):
     """
-    Parallelogramm mit senkrechter Wandstärke und horizontalem Versatz.
+    Parallelogram defined by vertical thickness, height, and horizontal skew.
 
-    Der Parameter `thickness` ist die *senkrechte* Distanz zwischen den
-    beiden schrägen Seiten – also die echte Wandstärke wie sie ein
-    3D-Drucker produziert. Die interne horizontale Breite `width` wird
-    automatisch abgeleitet:
+    The actual horizontal width is computed automatically so that
+    'thickness' represents the perpendicular wall thickness.
 
-        side_length = √(skew_x² + height²)
-        width       = thickness × side_length / height
-
-    Ecken (counter-clockwise ab unten-links):
-        BL = (x,                   y)
-        BR = (x + width,           y)
-        TR = (x + width + skew_x,  y + height)
-        TL = (x + skew_x,          y + height)
-
-    Positives skew_x → lehnt nach rechts.
-    Negatives skew_x → lehnt nach links.
-
-    contains() verwendet lokale (u, v)-Koordinaten via Cramer-Regel –
-    exakt und vektorisiert.
+    Positive skew_x leans right, negative skew_x leans left.
     """
 
-    def __init__(self, x: float, y: float, thickness: float,
-                 height: float, skew_x: float = 0.0):
-        self.x         = x
-        self.y         = y
+    def __init__(self, x: float, y: float, thickness: float, height: float, skew_x: float = 0.0):
+        self.x = x
+        self.y = y
         self.thickness = thickness
-        self.height    = height
-        self.skew_x    = skew_x
+        self.height = height
+        self.skew_x = skew_x
 
         side_length = math.sqrt(skew_x ** 2 + height ** 2)
-        self.width  = thickness * side_length / height
+        self.width = thickness * side_length / height
 
     def contains(self, px: Scalar_or_Array, py: Scalar_or_Array) -> Scalar_or_Array:
-        # Lokale Koordinaten relativ zur unteren linken Ecke
         lx = px - self.x
         ly = py - self.y
 
-        # Löse [width, skew_x; 0, height] * [u; v] = [lx; ly] per Cramer
-        # det = width * height  (immer > 0 für valide Geometrie)
         det = self.width * self.height
         if det == 0:
             return np.zeros_like(px, dtype=bool) if isinstance(px, np.ndarray) else False
@@ -141,39 +77,24 @@ class Parallelogram(Shape):
         return min(corners_x), min(corners_y), max(corners_x), max(corners_y)
 
 
-# ---------------------------------------------------------------------------
-# Geometry (Zusammensetzung mehrerer Shapes)
-# ---------------------------------------------------------------------------
-
 class Geometry:
-    """
-    Union mehrerer Shapes: ein Punkt liegt in der Geometrie wenn er in
-    mindestens einem Shape liegt.
-
-    contains() ist vollständig vektorisiert – px und py können numpy-Arrays
-    beliebiger Form sein (z.B. ein meshgrid für FEM oder Gewichtsschätzung).
-    """
-
+    # A Geometry-object is a collection of Shapes.
     def __init__(self, shapes: list[Shape]):
         self.shapes = shapes
 
     def contains(self, px: Scalar_or_Array, py: Scalar_or_Array) -> Scalar_or_Array:
-        """
-        Gibt True zurück wo (px, py) in mindestens einem Shape liegt.
-        Funktioniert für Skalare und numpy-Arrays gleichermaßen.
-        """
+        # returns true, where (px, py) lies in at least one Shape.
         result = None
         for shape in self.shapes:
             mask = shape.contains(px, py)
             result = mask if result is None else (result | mask)
 
-        # Fallback für leere Geometrie
         if result is None:
             return np.zeros_like(px, dtype=bool) if isinstance(px, np.ndarray) else False
         return result
 
+
     def bounding_box(self) -> Tuple[float, float, float, float]:
-        """Umschließendes Rechteck über alle Shapes."""
         boxes = [s.bounding_box() for s in self.shapes]
         min_x = min(b[0] for b in boxes)
         min_y = min(b[1] for b in boxes)
@@ -181,64 +102,27 @@ class Geometry:
         max_y = max(b[3] for b in boxes)
         return min_x, min_y, max_x, max_y
 
-    # ------------------------------------------------------------------
-    # Flächenberechnung (vektorisiert)
-    # ------------------------------------------------------------------
 
     def approximate_area(self, nx: int, ny: int) -> float:
-        """
-        Berechnet die Querschnittsfläche durch Rasterisierung auf einem
-        nx × ny Gitter. Vektorisiert – kein Python-Loop.
-
-        Parameters
-        ----------
-        nx, ny : Gittergröße (höher = genauer)
-
-        Returns
-        -------
-        Fläche in mm²
-        """
         min_x, min_y, max_x, max_y = self.bounding_box()
         dx = (max_x - min_x) / nx
         dy = (max_y - min_y) / ny
 
-        # Mittelpunkte aller Zellen
+        # center point for each cell
         xs = np.linspace(min_x + dx/2, max_x - dx/2, nx)
         ys = np.linspace(min_y + dy/2, max_y - dy/2, ny)
-        xs_grid, ys_grid = np.meshgrid(xs, ys, indexing='ij')  # (nx, ny)
+        xs_grid, ys_grid = np.meshgrid(xs, ys, indexing='ij')
 
         mask = self.contains(xs_grid, ys_grid)
         return float(np.sum(mask)) * dx * dy
 
-    # ------------------------------------------------------------------
-    # Adaptive Gewichtsschätzung
-    # ------------------------------------------------------------------
 
     def estimate_weight_grams(
         self,
         initial_nx: int = 50,
-        max_nx: int     = 2000,
-        tol: float      = 1e-3,
+        max_nx: int = 4000,
+        tol: float = 1e-3,
     ) -> float:
-        """
-        Schätzt das Gewicht adaptiv: verdoppelt die Auflösung bis die
-        berechnete Fläche konvergiert (relative Änderung < tol).
-
-        Hintergrund: Bei feinen Geometrien (dünne Stäbe, scharfe Ecken)
-        liefert ein grobes Raster systematisch falsche Flächen. Die
-        adaptive Variante ist zuverlässiger und trotzdem schnell, weil
-        approximate_area() vektorisiert ist.
-
-        Parameters
-        ----------
-        initial_nx : Startraster (quadratisch)
-        max_nx     : maximale Auflösung (Sicherheitsstop)
-        tol        : relative Konvergenztoleranz
-
-        Returns
-        -------
-        Gewicht in Gramm
-        """
         min_x, min_y, max_x, max_y = self.bounding_box()
         aspect = (max_y - min_y) / max((max_x - min_x), 1e-9)
 
@@ -255,7 +139,7 @@ class Geometry:
                     break
 
             prev_area = area
-            nx = int(nx * 2)   # verdoppeln statt ×1.5: Gitterpunkte überlappen nicht
+            nx = int(nx * 2)
 
         volume_mm3 = area * config.BRIDGE_DEPTH
         return volume_mm3 * config.PLA_DENSITY
