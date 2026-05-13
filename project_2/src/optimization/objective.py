@@ -14,6 +14,7 @@ import config
 W_MASS = 1.0
 W_DEFLECTION = 5.0
 MASS_REF_G = 100.0
+DESIRED_DEFLECTION = config.MAX_DEFLECTION * 0.7
 
 
 def _run_truss(design, params) -> tuple[float, float]:
@@ -28,8 +29,8 @@ def _run_truss(design, params) -> tuple[float, float]:
 
 
 def _deflection_penalty(max_deflection_mm: float) -> float:
-    excess = max(0.0, max_deflection_mm - config.MAX_DEFLECTION)
-    return (excess / config.MAX_DEFLECTION) ** 2
+    excess = max(0.0, max_deflection_mm - DESIRED_DEFLECTION)
+    return (excess / DESIRED_DEFLECTION) ** 2
 
 
 def compute_loss(design, params) -> dict | None:
