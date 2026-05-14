@@ -40,9 +40,6 @@ class _State:
 _s = _State()
 
 
-# ---------------------------------------
-# Public API (called from Explorer tab and main app)
-# ---------------------------------------
 def build(parent_tag: str):
     """Build the Analysis tab and register it under parent_tag."""
     _s.texture_geometry = _create_texture(CANVAS_W, CANVAS_H)
@@ -96,9 +93,7 @@ def load_design(geometry: Geometry, truss):
     dpg.set_value("main_tabs", "tab_analysis")
 
 
-# ---------------------------------------
-# Layout builders
-# ---------------------------------------
+# ----------------- Layout builders ----------------------------
 def _build_top_bar():
     with dpg.group(horizontal=True):
         dpg.add_text("Load SVG:")
@@ -124,27 +119,23 @@ def _build_geometry_canvas():
 
 
 def _build_truss_results():
-    dpg.add_text("Truss Solver  (fast, bar-force model)", color=(200, 200, 200))
+    dpg.add_text("Truss Solver", color=(200, 200, 200))
     dpg.add_separator()
     dpg.add_spacer(height=6)
     with dpg.group(horizontal=True):
         _result_card("Weight", "-- g", "truss_weight")
         dpg.add_spacer(width=40)
         _result_card("Max Deflection", "-- mm", "truss_deflection")
-        dpg.add_spacer(width=40)
-        _result_card("Max Bar Force", "-- N", "truss_max_force")
-        dpg.add_spacer(width=40)
-        _result_card("Max Bar Stress", "-- MPa","truss_max_stress")
 
 
 def _build_fem_section():
-    dpg.add_text("FEM Solver  (plane-stress, differential equations)", color=(200, 200, 200))
+    dpg.add_text("FEM Solver", color=(200, 200, 200))
     dpg.add_separator()
     dpg.add_spacer(height=6)
 
     with dpg.group(horizontal=True):
         dpg.add_button(
-            label="Run FEM (adaptive resolution)",
+            label="Run FEM",
             width=260, height=36,
             callback=_on_run_fem,
         )
@@ -164,15 +155,15 @@ def _build_fem_section():
 
     # Six heatmap images in two rows
     _heatmap_row(
-        [("Vertical displacement  v  [mm]", "heatmap_disp_y", _s.texture_disp_y),
-         ("Normal stress  sigma11  [MPa]", "heatmap_s11", _s.texture_s11),
+        [("Vertical displacement [mm]", "heatmap_disp_y", _s.texture_disp_y),
+         ("Normal stress  sigma11 [MPa]", "heatmap_s11", _s.texture_s11),
          ("Normal stress  sigma22 [MPa]", "heatmap_s22", _s.texture_s22)],
     )
     dpg.add_spacer(height=10)
     _heatmap_row(
-        [("Shear stress  sigma12  [MPa]", "heatmap_s12", _s.texture_s12),
-         ("von Mises stress  [MPa]", "heatmap_vonmises", _s.texture_vonmises),
-         None],   # placeholder to keep layout symmetric
+        [("Shear stress  sigma12 [MPa]", "heatmap_s12", _s.texture_s12),
+         ("von Mises stress [MPa]", "heatmap_vonmises", _s.texture_vonmises),
+         None], # placeholder to keep layout symmetric
     )
 
 
@@ -195,9 +186,7 @@ def _result_card(label: str, placeholder: str, tag: str):
         dpg.add_text(placeholder, tag=tag)
 
 
-# ---------------------------------------
-# Logic
-# ---------------------------------------
+# -------------- Logic -----------------------
 def _on_svg_selected(sender, svg_filename):
     if not svg_filename:
         return
@@ -235,10 +224,7 @@ def _fem_worker():
     """Runs in a background thread so the GUI stays responsive."""
     try:
         result, history = solve_fem_adaptive(
-            _s.geometry,
-            elastic_modulus_mpa=2500.0,
-            poisson_ratio=0.35,
-            point_load_newtons=5.0 * 9.81,
+            geometry=_s.geometry
         )
         _s.fem_result = result
 
@@ -256,7 +242,7 @@ def _fem_worker():
         dpg.set_value("fem_vonmises_max", f"{np.max(result.von_mises_stress):.2f} MPa")
         _set_fem_status("Done", (100, 220, 100))
 
-        _s.fem_dirty = True   # signal main thread to redraw textures
+        _s.fem_dirty = True # signal main thread to redraw textures
 
     except Exception as exc:
         _set_fem_status(f"Error: {exc}", (255, 100, 100))
@@ -264,9 +250,7 @@ def _fem_worker():
         _s.fem_running = False
 
 
-# ---------------------------------------
-# Rendering helpers
-# ---------------------------------------
+# ----------------- Helpers ------------------------------
 def _redraw_geometry():
     if _s.geometry is None:
         return
@@ -280,42 +264,16 @@ def _redraw_geometry():
 def _run_truss_solver():
     if _s.truss is None:
         dpg.set_value("truss_deflection", "-- mm (no truss)")
-        dpg.set_value("truss_max_force", "-- N")
-        dpg.set_value("truss_max_stress", "-- MPa")
         return
 
     try:
         truss = _s.truss
-        bottom_nodes = [i for i, n in enumerate(truss.nodes) if n.y == 0]
-
-        xs      = [truss.nodes[i].x for i in bottom_nodes]
-        mid_x   = 0.5 * (min(xs) + max(xs))
-        mid_node  = min(bottom_nodes, key=lambda i: abs(truss.nodes[i].x - mid_x))
-        left_node  = min(bottom_nodes, key=lambda i: truss.nodes[i].x)
-        right_node = max(bottom_nodes, key=lambda i: truss.nodes[i].x)
-
-        F      = 5.0 * 9.81
-        forces = {mid_node: (0.0, -F)}
-        fixed_dofs = [
-            (left_node, 0), (left_node, 1),
-            (right_node, 1),
-        ]
-
-        displacements, bar_forces = solve_truss(truss, forces, fixed_dofs, E=2500.0)
+        displacements, bar_forces = solve_truss(truss)
 
         max_defl = max(abs(d[1]) for d in displacements)
         dpg.set_value("truss_deflection", f"{max_defl:.4f} mm")
 
-        if bar_forces is not None:
-            max_force = max(abs(f) for f in bar_forces)
-            dpg.set_value("truss_max_force", f"{max_force:.2f} N")
-
-            # Stress = force / cross-section area
-            stresses = [abs(bar_forces[k]) / truss.edges[k].area
-                        for k in range(len(truss.edges))]
-            dpg.set_value("truss_max_stress", f"{max(stresses):.2f} MPa")
-
-        _set_status("Truss solved ✓", (100, 220, 100))
+        _set_status("Truss solved", (100, 220, 100))
 
     except Exception as exc:
         _set_status(f"Truss error: {exc}", (255, 100, 100))
@@ -339,29 +297,29 @@ def _upload_heatmap(texture_tag, field: np.ndarray, mask: np.ndarray, diverging:
     Convert a 2-D numpy field (nx × ny) to a flat RGBA list and upload it to
     a DearPyGui dynamic texture.
 
-    diverging=True  → blue-white-red colormap  (for signed quantities)
-    diverging=False → black-yellow-white        (for non-negative quantities)
+    diverging=True -> blue-white-red colormap (for signed quantities)
+    diverging=False -> black-yellow-white (for non-negative quantities)
     """
     nx, ny = field.shape
 
     # Resize field to heatmap dimensions via simple nearest-neighbour
     ix = np.round(np.linspace(0, nx - 1, HEATMAP_W)).astype(int)
     iy = np.round(np.linspace(0, ny - 1, HEATMAP_H)).astype(int)
-    resampled = field[np.ix_(ix, iy)]          # (HEATMAP_W, HEATMAP_H)
-    mask_rs   = mask[np.ix_(ix, iy)]
+    resampled = field[np.ix_(ix, iy)] # (HEATMAP_W, HEATMAP_H)
+    mask_rs = mask[np.ix_(ix, iy)]
 
     vmax = np.max(np.abs(resampled[mask_rs])) if mask_rs.any() else 1.0
     if vmax < 1e-12:
         vmax = 1.0
 
     pixels = []
-    for j in range(HEATMAP_H - 1, -1, -1):     # flip y: row 0 = bottom
+    for j in range(HEATMAP_H - 1, -1, -1):
         for i in range(HEATMAP_W):
             if not mask_rs[i, j]:
-                pixels += [0.08, 0.08, 0.10, 1.0]   # void = dark background
+                pixels += [0.08, 0.08, 0.10, 1.0] # dark background
                 continue
 
-            t = float(resampled[i, j]) / vmax       # in [-1, 1] or [0, 1]
+            t = float(resampled[i, j]) / vmax
 
             if diverging:
                 r, g, b = _colormap_diverging(t)
@@ -374,7 +332,6 @@ def _upload_heatmap(texture_tag, field: np.ndarray, mask: np.ndarray, diverging:
 
 
 def _colormap_diverging(t: float):
-    """Blue (−1) → white (0) → red (+1)"""
     t = max(-1.0, min(1.0, t))
     if t < 0:
         s = -t
@@ -384,7 +341,6 @@ def _colormap_diverging(t: float):
 
 
 def _colormap_sequential(t: float):
-    """Black (0) → deep blue → cyan → yellow → white (1)"""
     t = max(0.0, min(1.0, t))
     if t < 0.33:
         s = t / 0.33
@@ -397,9 +353,8 @@ def _colormap_sequential(t: float):
         return (s, 1.0, s)
 
 
-# ---------------------------------------
-# Utility
-# ---------------------------------------
+
+# -------------- More helpers --------------------------
 def _create_texture(w: int, h: int) -> int:
     blank = [0.08, 0.08, 0.10, 1.0] * (w * h)
     with dpg.texture_registry():

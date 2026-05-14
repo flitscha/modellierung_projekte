@@ -1,26 +1,26 @@
 """
 Exports a Geometry object to an SVG file.
-
 Output folder is created automatically if it doesn't exist.
-Files are named  <design_name>_001.svg, _002.svg
+Files are named  <design_name>_001.svg, _002.svg, ...
 """
+
 import os
-from core.geometry import Parallelogram
+from core.geometry import Geometry, Rectangle, Parallelogram
 
 OUTPUT_DIR = "exports"
 
 
-def export_svg(geometry, design_name: str) -> str:
-    # Export geometry to SVG. Returns the path of the written file.
+def export_svg(geometry: Geometry, design_name: str) -> str:
+    # Export geometry to SVG and return the path of the written file
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     path = _next_path(design_name)
     _write_svg(geometry, path)
     return path
 
 
-# ----------- Helpers -------------------
+# --------------- Helpers ---------------------
 def _next_path(design_name: str) -> str:
-    """Return the next non-existing exports/<design_name>_NNN.svg path."""
+    # Return the next non-existing exports/<design_name>_NNN.svg path
     safe_name = design_name.lower().replace(" ", "_")
     n = 1
     while True:
@@ -30,35 +30,46 @@ def _next_path(design_name: str) -> str:
         n += 1
 
 
-def _write_svg(geometry, path: str):
+def _write_svg(geometry: Geometry, path: str) -> None:
     min_x, min_y, max_x, max_y = geometry.bounding_box()
-    width  = max_x - min_x
-    height = max_y - min_y
- 
+    vb_width  = max_x - min_x
+    vb_height = max_y - min_y
+
+    def flip(y_internal: float) -> float:
+        # Convert internal y (up) -> SVG y (down) within the viewBox
+        return max_y - y_internal
+
     with open(path, "w") as f:
-        f.write(f'<svg xmlns="http://www.w3.org/2000/svg" ')
-        f.write(f'width="{width}mm" height="{height}mm" ')
-        f.write(f'viewBox="{min_x} {min_y} {width} {height}">\n')
- 
+        f.write(
+            f'<svg xmlns="http://www.w3.org/2000/svg" '
+            f'width="{vb_width}mm" height="{vb_height}mm" '
+            f'viewBox="{min_x} {min_y} {vb_width} {vb_height}">\n'
+        )
+
         for shape in geometry.shapes:
             if isinstance(shape, Parallelogram):
-                # Emit a <polygon> with the four corners
-                x, y, w, h, sx = (shape.x, shape.y,
-                                   shape.width, shape.height, shape.skew_x)
-                pts = (f"{x},{y+h} "          # top-left   (SVG y-down)
-                       f"{x+w},{y+h} "        # top-right
-                       f"{x+w+sx},{y} "       # bottom-right
-                       f"{x+sx},{y}")         # bottom-left
-                f.write(
-                    f'  <polygon points="{pts}" style="fill:black;" />\n'
+                x, y = shape.x, shape.y
+                w, h = shape.width, shape.height
+                sx = shape.skew_x
+
+                svg_bottom = flip(y)
+                svg_top = flip(y + h)
+
+                pts = (
+                    f"{x},{svg_bottom} "
+                    f"{x + w},{svg_bottom} "
+                    f"{x + w + sx},{svg_top} "
+                    f"{x + sx},{svg_top}"
                 )
-            else:
-                # Rectangle
+                f.write(f'  <polygon points="{pts}" style="fill:black;" />\n')
+
+            elif isinstance(shape, Rectangle):
+                svg_y = flip(shape.y + shape.height)
                 f.write(
-                    f'  <rect x="{shape.x}" y="{shape.y}" '
+                    f'  <rect x="{shape.x}" y="{svg_y}" '
                     f'width="{shape.width}" height="{shape.height}" '
                     f'style="fill:black;" />\n'
                 )
- 
+
         f.write('</svg>\n')
- 
+

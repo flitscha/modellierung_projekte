@@ -221,10 +221,10 @@ def _redraw():
             _set_status("truss not implemented for this design", (255, 0, 0))
             return
 
-    # Truss solver (optional)
+    # truss solver (if it is enabled)
     if not _s.solver_enabled:
         return
-    try: # TODO: clean up and understand this code
+    try:
         # weight calculation
         weight = geometry.estimate_weight_grams()
 
@@ -235,37 +235,9 @@ def _redraw():
 
         # truss solver
         truss = _s.design.build_truss(_s.params)
+        displacements, _ = solve_truss(truss)
 
-        # --- middle bottom node ---
-        xs = [n.x for n in truss.nodes]
-        min_x, max_x = min(xs), max(xs)
-        mid_x = 0.5 * (min_x + max_x)
-
-        bottom_nodes = [i for i, n in enumerate(truss.nodes) if n.y == 0]
-        mid_node = min(bottom_nodes, key=lambda i: abs(truss.nodes[i].x - mid_x))
-
-        # --- load ---
-        F = 5.0 * 9.81
-        forces = {mid_node: (0.0, -F)}
-
-        # --- supports ---
-        left = min(bottom_nodes, key=lambda i: truss.nodes[i].x)
-        right = max(bottom_nodes, key=lambda i: truss.nodes[i].x)
-
-        fixed_dofs = [
-            (left, 0), (left, 1),
-            (right, 1)
-        ]
-
-        # --- solve ---
-        displacements, _ = solve_truss(
-            truss,
-            forces,
-            fixed_dofs,
-            E=2500.0
-        )
-
-        # --- max deflection ---
+        # max deflection
         max_defl = max(abs(d[1]) for d in displacements)
         dpg.set_value(
             "explorer_deflection",
