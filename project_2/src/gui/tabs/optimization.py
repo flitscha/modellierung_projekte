@@ -48,6 +48,7 @@ def tick():
         _s.pending_progress = None
         _update_plot(progress)
         _update_best_panel(progress)
+        _update_grid_progress(progress)
 
     done = _s.pending_done
     if done is not None:
@@ -75,6 +76,10 @@ def _build_top_bar(designs):
         dpg.add_text("Status:", color=(160, 160, 180))
         dpg.add_spacer(width=4)
         dpg.add_text("idle", tag="opt_status", color=(160, 160, 180))
+
+    dpg.add_spacer(height=6)
+    dpg.add_progress_bar(tag="opt_progress_bar", default_value=0.0, width=-1)
+    dpg.add_text("", tag="opt_progress_label", color=(160, 160, 180))
 
 
 def _build_loss_plot():
@@ -161,6 +166,12 @@ def _on_done(result: OptimisationResult):
     _s.pending_done = result
 
 
+def _update_grid_progress(progress: ProgressUpdate):
+    pct = progress.grid_pct
+    dpg.set_value("opt_progress_bar", pct / 100.0)
+    dpg.set_value("opt_progress_label", f"{int(pct)}% evaluated")
+
+
 def _update_plot(progress: ProgressUpdate):
     if _s.run is None:
         return
@@ -174,6 +185,8 @@ def _update_plot(progress: ProgressUpdate):
 
 
 def _update_best_panel(progress: ProgressUpdate):
+    if not progress.best_result:
+        return
     r = progress.best_result
     feasible = r["feasible"]
     defl_color = (100, 220, 100) if feasible else (255, 100, 100)
@@ -196,6 +209,8 @@ def _update_best_panel(progress: ProgressUpdate):
 def _on_run_finished(result: OptimisationResult):
     if result.success:
         _set_status("done", (100, 220, 100))
+        dpg.set_value("opt_progress_bar", 1.0)
+        dpg.set_value("opt_progress_label", "100% evaluated")
     elif result.message == "stopped by user":
         _set_status("stopped", (255, 200, 10))
     else:
@@ -204,7 +219,6 @@ def _on_run_finished(result: OptimisationResult):
     dpg.configure_item("opt_btn_start", enabled=True)
     dpg.configure_item("opt_btn_stop", enabled=False)
 
-    # draw canvas
     if result.best_params is not None and _s.design is not None:
         try:
             geometry = _s.design.build_geometry(result.best_params)
@@ -215,6 +229,7 @@ def _on_run_finished(result: OptimisationResult):
 
 
 # ----------------- Helpers ------------------------------
+
 def _reset_ui():
     if dpg.does_item_exist(_TAG_LOSS_SERIES):
         dpg.set_value(_TAG_LOSS_SERIES, [[], []])
@@ -225,6 +240,10 @@ def _reset_ui():
             dpg.configure_item(tag, color=(255, 200, 10))
     if dpg.does_item_exist("opt_best_params_group"):
         dpg.delete_item("opt_best_params_group", children_only=True)
+    if dpg.does_item_exist("opt_progress_bar"):
+        dpg.set_value("opt_progress_bar", 0.0)
+    if dpg.does_item_exist("opt_progress_label"):
+        dpg.set_value("opt_progress_label", "")
     if _s.texture_tag is not None:
         blank = [0.12, 0.12, 0.16, 1.0] * (CANVAS_W * CANVAS_H)
         dpg.set_value(_s.texture_tag, blank)
