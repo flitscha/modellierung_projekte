@@ -57,6 +57,7 @@ def tick():
 
 
 # ----------------- Layout builders ----------------------------
+
 def _build_top_bar(designs):
     with dpg.group(horizontal=True):
         dpg.add_text("Design:")
@@ -122,9 +123,18 @@ def _build_best_result_panel():
     dpg.add_text("Bridge preview  (shown when run completes)", color=(180, 180, 180))
     dpg.add_spacer(height=4)
     dpg.add_image(_s.texture_tag, tag="opt_canvas", width=CANVAS_W, height=CANVAS_H)
+    dpg.add_spacer(height=10)
+    dpg.add_button(
+        label="Open in Explorer",
+        tag="opt_btn_open_explorer",
+        width=200, height=32,
+        callback=_on_open_in_explorer,
+        show=False,
+    )
 
 
 # -------------- Logic -----------------------
+
 def _select_design(design):
     if _s.run is not None and _s.run.running:
         _s.run.stop(join_timeout=2.0)
@@ -156,6 +166,14 @@ def _on_stop():
     if _s.run is not None:
         _s.run.stop(join_timeout=0)
     _set_status("stopping …", (255, 200, 10))
+
+
+def _on_open_in_explorer():
+    if _s.design is None or _s.run is None or _s.run.best_params is None:
+        return
+    from gui.tabs import explorer
+    explorer.load_params(_s.design.name, _s.run.best_params)
+    dpg.set_value("main_tabs", "tab_explorer")
 
 
 def _on_progress(update: ProgressUpdate):
@@ -226,6 +244,7 @@ def _on_run_finished(result: OptimisationResult):
             dpg.set_value(_s.texture_tag, pixel_data)
         except Exception:
             pass
+        dpg.configure_item("opt_btn_open_explorer", show=True)
 
 
 # ----------------- Helpers ------------------------------
@@ -240,6 +259,8 @@ def _reset_ui():
             dpg.configure_item(tag, color=(255, 200, 10))
     if dpg.does_item_exist("opt_best_params_group"):
         dpg.delete_item("opt_best_params_group", children_only=True)
+    if dpg.does_item_exist("opt_btn_open_explorer"):
+        dpg.configure_item("opt_btn_open_explorer", show=False)
     if dpg.does_item_exist("opt_progress_bar"):
         dpg.set_value("opt_progress_bar", 0.0)
     if dpg.does_item_exist("opt_progress_label"):

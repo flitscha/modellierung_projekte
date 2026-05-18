@@ -17,6 +17,7 @@ CANVAS_H = 150
 class _State:
     def __init__(self):
         self.design = None
+        self.designs_by_name = {}
         self.params: dict = {}
         self.texture_tag = None
         self.dirty = False
@@ -30,11 +31,11 @@ _s = _State()
 def build(parent_tag: str, designs: list):
     """Build the Design Explorer tab and register it under parent_tag."""
     _s.texture_tag = _create_texture()
-    designs_by_name = {d.name: d for d in designs}
+    _s.designs_by_name = {d.name: d for d in designs}
 
-    with dpg.tab(label="Design Explorer", parent=parent_tag):
+    with dpg.tab(label="Design Explorer", parent=parent_tag, tag="tab_explorer"):
         dpg.add_spacer(height=6)
-        _build_top_bar(designs, designs_by_name)
+        _build_top_bar(designs, _s.designs_by_name)
         dpg.add_spacer(height=10)
         _build_canvas()
         dpg.add_spacer(height=14)
@@ -49,6 +50,27 @@ def tick():
     if _s.dirty:
         _s.dirty = False
         _redraw()
+
+
+def load_params(design_name: str, params: dict):
+    """
+    Loads parameters into the Explorer and marks it dirty for redraw.
+    Called from the Optimisation tab
+    """
+    design = _s.designs_by_name.get(design_name)
+    if design is None:
+        return
+
+    _select_design(design)
+    _s.params = dict(params)
+
+    for p in design.parameter_space():
+        tag = f"slider_{p.name}"
+        if dpg.does_item_exist(tag):
+            val = params[p.name]
+            dpg.set_value(tag, int(val) if isinstance(p, IntParameter) else float(val))
+
+    _s.dirty = True
 
 
 # ----------------- Layout builders ----------------------------
@@ -175,7 +197,7 @@ def _on_analyse():
     if _s.design is None:
         return
     if not _s.design.validate(_s.params):
-        _set_status("Cannot analyse — invalid parameters", (255, 180, 0))
+        _set_status("Cannot analyse - invalid parameters", (255, 180, 0))
         return
     # Import here to avoid circular imports at module load time
     from gui.tabs import analysis
