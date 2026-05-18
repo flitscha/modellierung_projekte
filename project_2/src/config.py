@@ -16,11 +16,11 @@ MAX_DEFLECTION = 3.0 # mm
 
 # Material settings
 PLA_DENSITY = 1.24e-3 # g/mm^3
-PLA_ELASTIC_MODULUS_MPA: float = 2200.0 # PLA has an value in between 2000 and 3500
+PLA_ELASTIC_MODULUS_MPA: float = 3000.0 # PLA has an value in between 2000 and 3500
 PLA_POISSON_RATIO: float = 0.35
 
 # FEM Solver defaults
-FEM_INITIAL_NX: int = 200
-FEM_MAX_NX: int = 5000
+FEM_INITIAL_NX: int = 800
+FEM_MAX_NX: int = 6000
 FEM_CONVERGENZ_TOL: float = 0.02
 FEM_LOAD_SPREAD_NODES: int = 5

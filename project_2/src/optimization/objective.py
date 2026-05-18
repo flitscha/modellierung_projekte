@@ -12,9 +12,9 @@ from simulations.solve_truss import solve_truss
 import config
 
 W_MASS = 1.0
-W_DEFLECTION = 5.0
+W_DEFLECTION = 3.0
 MASS_REF_G = 100.0
-DESIRED_DEFLECTION = config.MAX_DEFLECTION * 0.7
+DESIRED_DEFLECTION = config.MAX_DEFLECTION * 0.6
 
 
 def _run_truss(design, params) -> tuple[float, float]:

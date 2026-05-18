@@ -8,9 +8,9 @@ from designs.howe_truss import HoweTrussDesign
 from gui import app
 
 DESIGNS = [
-    IBeamDesign(),
     PrattTrussDesign(),
     HoweTrussDesign(),
+    IBeamDesign(),
 ]
 
 if __name__ == "__main__":

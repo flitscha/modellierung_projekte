@@ -119,7 +119,7 @@ class Geometry:
 
     def estimate_weight_grams(
         self,
-        initial_nx: int = 300,
+        initial_nx: int = 400,
         max_nx: int = 4000,
         tol: float = 1e-3,
     ) -> float:
