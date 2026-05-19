@@ -308,7 +308,8 @@ def _upload_heatmap(texture_tag, field: np.ndarray, mask: np.ndarray, diverging:
     resampled = field[np.ix_(ix, iy)] # (HEATMAP_W, HEATMAP_H)
     mask_rs = mask[np.ix_(ix, iy)]
 
-    vmax = np.max(np.abs(resampled[mask_rs])) if mask_rs.any() else 1.0
+    vals = np.abs(resampled[mask_rs])
+    vmax = np.percentile(vals, 98) if mask_rs.any() else 1.0
     if vmax < 1e-12:
         vmax = 1.0
 
