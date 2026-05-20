@@ -1,7 +1,9 @@
 import os
 import threading
+import datetime
 import dearpygui.dearpygui as dpg
 import numpy as np
+from PIL import Image as _PILImage
 
 import config
 from core.geometry import Geometry
@@ -17,6 +19,9 @@ CANVAS_H = 150
 # Heatmap image dimensions (for the FEM field plots)
 HEATMAP_W = 600
 HEATMAP_H = 200
+
+# Folder where PNG exports are written
+PLOT_EXPORT_DIR = os.path.join(os.path.dirname(OUTPUT_DIR), "fem_plots")
 
 
 class _State:
@@ -139,6 +144,13 @@ def _build_fem_section():
             width=260, height=36,
             callback=_on_run_fem,
         )
+        dpg.add_spacer(width=12)
+        dpg.add_button(
+            label="Export plots as PNG",
+            tag="btn_export_plots",
+            width=200, height=36,
+            callback=_on_export_plots,
+        )
         dpg.add_spacer(width=20)
         dpg.add_text("", tag="fem_status", color=(160, 160, 180))
 
@@ -248,6 +260,45 @@ def _fem_worker():
         _set_fem_status(f"Error: {exc}", (255, 100, 100))
     finally:
         _s.fem_running = False
+
+
+def _on_export_plots():
+    """Export the 5 FEM heatmap textures as PNG files."""
+    if _s.fem_result is None:
+        _set_fem_status("No FEM results to export – run the solver first.", (255, 180, 0))
+        return
+
+    os.makedirs(PLOT_EXPORT_DIR, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    plots = [
+        ("disp_y", _s.texture_disp_y, "Vertical displacement [mm]"),
+        ("sigma11", _s.texture_s11, "Normal stress sigma11 [MPa]"),
+        ("sigma22", _s.texture_s22, "Normal stress sigma22 [MPa]"),
+        ("sigma12", _s.texture_s12, "Shear stress sigma12 [MPa]"),
+        ("vonmises", _s.texture_vonmises, "von Mises stress [MPa]"),
+    ]
+
+    try:
+        saved = []
+        for name, texture_tag, _label in plots:
+            raw = dpg.get_value(texture_tag)  # list of floats, length W*H*4
+            arr = np.array(raw, dtype=np.float32).reshape((HEATMAP_H, HEATMAP_W, 4))
+            arr = np.flipud(arr)
+            img_arr = (arr * 255).clip(0, 255).astype(np.uint8)
+            img = _PILImage.fromarray(img_arr, mode="RGBA")
+
+            filename = f"{timestamp}_{name}.png"
+            filepath = os.path.join(PLOT_EXPORT_DIR, filename)
+            img.save(filepath)
+            saved.append(filename)
+
+        _set_fem_status(
+            f"Exported {len(saved)} PNGs → {PLOT_EXPORT_DIR}",
+            (100, 220, 100),
+        )
+    except Exception as exc:
+        _set_fem_status(f"Export error: {exc}", (255, 100, 100))
 
 
 # ----------------- Helpers ------------------------------

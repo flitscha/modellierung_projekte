@@ -33,7 +33,7 @@ The bridge design should be submitted as an SVG file so that it can be 3D printe
 ### Install dependencies
 
 ```bash
-pip install numpy scipy dearpygui
+pip install numpy scipy dearpygui pillow
 ```
 
 ### Start the application
