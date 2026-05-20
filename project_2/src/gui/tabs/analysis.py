@@ -284,7 +284,6 @@ def _on_export_plots():
         for name, texture_tag, _label in plots:
             raw = dpg.get_value(texture_tag)  # list of floats, length W*H*4
             arr = np.array(raw, dtype=np.float32).reshape((HEATMAP_H, HEATMAP_W, 4))
-            arr = np.flipud(arr)
             img_arr = (arr * 255).clip(0, 255).astype(np.uint8)
             img = _PILImage.fromarray(img_arr, mode="RGBA")
 
