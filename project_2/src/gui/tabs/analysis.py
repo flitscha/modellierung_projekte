@@ -265,7 +265,7 @@ def _fem_worker():
 def _on_export_plots():
     """Export the 5 FEM heatmap textures as PNG files."""
     if _s.fem_result is None:
-        _set_fem_status("No FEM results to export – run the solver first.", (255, 180, 0))
+        _set_fem_status("No FEM results to export - run the solver first.", (255, 180, 0))
         return
 
     os.makedirs(PLOT_EXPORT_DIR, exist_ok=True)
@@ -294,7 +294,7 @@ def _on_export_plots():
             saved.append(filename)
 
         _set_fem_status(
-            f"Exported {len(saved)} PNGs → {PLOT_EXPORT_DIR}",
+            f"Exported {len(saved)} PNGs -> {PLOT_EXPORT_DIR}",
             (100, 220, 100),
         )
     except Exception as exc:
