@@ -1,0 +1,741 @@
+"""
+Airfoil Tool  –  Generator + Potentialströmungs-Analyse
+========================================================
+Alles in einer Datei:
+  1. Interaktiver Profil-Generator (Schieberegler, Selig-Export)
+  2. Potentialströmungs-Analyse (Panel-Methode, Cp, CL, Stromlinien)
+
+Verwendung:
+    python airfoil_tool.py                  # Startmenü
+    python airfoil_tool.py gen              # direkt in den Generator
+    python airfoil_tool.py analyse          # direkt in die Analyse
+    python airfoil_tool.py analyse mein.dat # Selig-Datei direkt laden
+    python airfoil_tool.py analyse mein.dat 8.0  # mit Anstellwinkel
+
+"""
+
+import sys
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider, Button, RadioButtons
+from matplotlib.gridspec import GridSpec
+from matplotlib.path import Path
+
+
+# ═══════════════════════════════════════════════════════════════
+# GEOMETRIE
+# ═══════════════════════════════════════════════════════════════
+
+def naca4(m_pct, p_pct, t_pct, n=200):
+    m = m_pct / 100.0
+    p = p_pct / 10.0
+    t = t_pct / 100.0
+    beta = np.linspace(0, np.pi, n)
+    x = 0.5 * (1 - np.cos(beta))
+    yt = 5*t*(0.2969*np.sqrt(x) - 0.1260*x - 0.3516*x**2 + 0.2843*x**3 - 0.1015*x**4)
+    if p == 0 or m == 0:
+        yc = np.zeros_like(x)
+        dyc_dx = np.zeros_like(x)
+    else:
+        yc = np.where(x <= p,
+                      (m/p**2)*(2*p*x - x**2),
+                      (m/(1-p)**2)*((1-2*p) + 2*p*x - x**2))
+        dyc_dx = np.where(x <= p,
+                          (2*m/p**2)*(p - x),
+                          (2*m/(1-p)**2)*(p - x))
+    theta = np.arctan(dyc_dx)
+    xu = x - yt*np.sin(theta);  yu = yc + yt*np.cos(theta)
+    xl = x + yt*np.sin(theta);  yl = yc - yt*np.cos(theta)
+    return xu, yu, xl, yl, x, yc
+
+
+def cst_profile(Au, Al, n=200):
+    from math import comb
+    x = 0.5*(1 - np.cos(np.linspace(0, np.pi, n)))
+    C = np.sqrt(x)*(1 - x)
+    def shape(A):
+        N = len(A) - 1
+        S = np.zeros_like(x)
+        for i, a in enumerate(A):
+            S += a * comb(N, i) * (x**i) * ((1-x)**(N-i))
+        return S
+    return x, C*shape(Au), x, -C*shape(Al)
+
+
+def save_selig(xu, yu, xl, yl, filename, name="AIRFOIL"):
+    upper = np.column_stack([xu[::-1], yu[::-1]])
+    lower = np.column_stack([xl[1:], yl[1:]])
+    coords = np.vstack([upper, lower])
+    with open(filename, "w") as f:
+        f.write(f"{name}\n")
+        for xi, yi in coords:
+            f.write(f"  {xi:.6f}  {yi:.6f}\n")
+    print(f"Gespeichert: {filename}  ({len(coords)} Punkte)")
+
+
+def load_selig(filename):
+    coords = []
+    name = "Airfoil"
+    with open(filename) as f:
+        for i, line in enumerate(f):
+            parts = line.split()
+            if len(parts) == 2:
+                try:
+                    coords.append([float(parts[0]), float(parts[1])])
+                except ValueError:
+                    pass
+            elif i == 0:
+                name = line.strip()
+    coords = np.array(coords)
+    if np.linalg.norm(coords[0] - coords[-1]) > 1e-6:
+        coords = np.vstack([coords, coords[0]])
+    return coords[:, 0], coords[:, 1], name
+
+
+def naca4_closed(m_pct=4, p_pct=4, t_pct=12, n=150):
+    xu, yu, xl, yl, _, _ = naca4(m_pct, p_pct, t_pct, n)
+    xp = np.concatenate([xu[::-1], xl[1:], [xu[-1]]])
+    yp = np.concatenate([yu[::-1], yl[1:], [yu[-1]]])
+    return xp, yp, f"NACA {m_pct}{p_pct}{t_pct:02d}"
+
+
+def coords_to_closed(xu, yu, xl, yl):
+    xp = np.concatenate([xu[::-1], xl[1:], [xu[-1]]])
+    yp = np.concatenate([yu[::-1], yl[1:], [yu[-1]]])
+    return xp, yp
+
+
+# ═══════════════════════════════════════════════════════════════
+# GENERATOR
+# ═══════════════════════════════════════════════════════════════
+
+def run_generator():
+    fig = plt.figure(figsize=(12, 7))
+    fig.patch.set_facecolor("#f8f8f8")
+
+    # Hauptplot
+    ax = fig.add_axes([0.05, 0.42, 0.60, 0.50])
+    ax.set_facecolor("white")
+    ax.set_aspect("equal")
+    ax.set_xlim(-0.05, 1.05)
+    ax.set_ylim(-0.35, 0.35)
+    ax.grid(True, alpha=0.3, linewidth=0.5)
+    ax.set_xlabel("x/c", fontsize=10)
+    ax.set_ylabel("y/c", fontsize=10)
+    ax.set_title("Tragflächenprofil", fontsize=11, pad=8)
+
+    (line_upper,) = ax.plot([], [], "b-", linewidth=2, label="Oberseite")
+    (line_lower,) = ax.plot([], [], "r-", linewidth=2, label="Unterseite")
+    (line_camber,) = ax.plot([], [], "g--", linewidth=1, alpha=0.7, label="Wölbungslinie")
+    fill_obj = [ax.fill([], [], alpha=0.12, color="steelblue")[0]]
+    ax.legend(loc="upper right", fontsize=8)
+    info_text = ax.text(0.02, 0.97, "", transform=ax.transAxes,
+                        va="top", fontsize=9, family="monospace", color="#333")
+
+    mode = {"current": "naca"}
+
+    # Slider-Positionen (NACA und CST an denselben Stellen, aber nur eine Gruppe sichtbar)
+    slider_positions = [
+        [0.07, 0.30, 0.52, 0.025],
+        [0.07, 0.235, 0.52, 0.025],
+        [0.07, 0.17, 0.52, 0.025],
+        [0.07, 0.105, 0.52, 0.025],
+    ]
+
+    # NACA Slider
+    naca_defs = [
+        ("m", "Wölbung m [%]",     0.0,  9.5, 4.0, 0.1),
+        ("p", "Position p [×10%]", 1.0,  7.0, 4.0, 0.5),
+        ("t", "Dicke t [%]",       4.0, 30.0, 12.0, 0.5),
+        ("n", "Punkte n",          50,  500,  200,  10),
+    ]
+    naca_sliders = {}
+    naca_axes = {}
+    for i, (key, label, vmin, vmax, vinit, vstep) in enumerate(naca_defs):
+        ax_s = fig.add_axes(slider_positions[i])
+        sl = Slider(ax_s, label, vmin, vmax, valinit=vinit, valstep=vstep)
+        sl.label.set_fontsize(9)
+        sl.valtext.set_fontsize(9)
+        naca_sliders[key] = sl
+        naca_axes[key] = ax_s
+
+    # CST Slider (unsichtbar starten, andere Axes-Objekte)
+    cst_defs = [
+        ("A0u", "Au[0]", 0.0, 0.5, 0.17, 0.01),
+        ("A1u", "Au[1]", 0.0, 0.5, 0.22, 0.01),
+        ("A0l", "Al[0]", 0.0, 0.5, 0.15, 0.01),
+        ("A1l", "Al[1]", 0.0, 0.5, 0.10, 0.01),
+    ]
+    cst_sliders = {}
+    cst_axes = {}
+    for i, (key, label, vmin, vmax, vinit, vstep) in enumerate(cst_defs):
+        # CST-Slider etwas versetzt damit kein Axes-Konflikt entsteht
+        pos = [slider_positions[i][0],
+               slider_positions[i][1] - 0.001,
+               slider_positions[i][2],
+               slider_positions[i][3]]
+        ax_s = fig.add_axes(pos)
+        sl = Slider(ax_s, label, vmin, vmax, valinit=vinit, valstep=vstep)
+        sl.label.set_fontsize(9)
+        sl.valtext.set_fontsize(9)
+        cst_sliders[key] = sl
+        cst_axes[key] = ax_s
+        ax_s.set_visible(False)
+
+    # Modus-Radio
+    ax_radio = fig.add_axes([0.70, 0.72, 0.13, 0.12])
+    radio = RadioButtons(ax_radio, ("NACA 4-digit", "CST"), active=0)
+    for lbl in radio.labels:
+        lbl.set_fontsize(9)
+
+    def switch_mode(label):
+        mode["current"] = "naca" if label == "NACA 4-digit" else "cst"
+        for ax_s in naca_axes.values():
+            ax_s.set_visible(mode["current"] == "naca")
+        for ax_s in cst_axes.values():
+            ax_s.set_visible(mode["current"] == "cst")
+        update(None)
+        fig.canvas.draw_idle()
+
+    radio.on_clicked(switch_mode)
+
+    # Presets
+    ax_lbl = fig.add_axes([0.70, 0.64, 0.26, 0.02])
+    ax_lbl.axis("off")
+    ax_lbl.text(0.5, 0.5, "Presets", ha="center", fontsize=9, color="#555")
+
+    presets = [
+        ("NACA 0012", 0, 0, 12), ("NACA 2412", 2, 4, 12),
+        ("NACA 4412", 4, 4, 12), ("NACA 6412", 6, 4, 12),
+        ("NACA 4415", 4, 4, 15), ("NACA 6415", 6, 4, 15),
+    ]
+    for i, (pname, m, p, t) in enumerate(presets):
+        row, col = divmod(i, 2)
+        bax = fig.add_axes([0.70 + col*0.13, 0.55 - row*0.055, 0.12, 0.038])
+        btn = Button(bax, pname, color="#eaeaea", hovercolor="#d0d0d0")
+        btn.label.set_fontsize(8)
+        def make_cb(m_, p_, t_):
+            def cb(event):
+                radio.set_active(0)
+                switch_mode("NACA 4-digit")
+                naca_sliders["m"].set_val(m_)
+                naca_sliders["p"].set_val(p_)
+                naca_sliders["t"].set_val(t_)
+            return cb
+        btn.on_clicked(make_cb(m, p, t))
+
+    # Speichern
+    ax_save = fig.add_axes([0.70, 0.35, 0.26, 0.05])
+    btn_save = Button(ax_save, "Selig .dat speichern", color="#c8e6c9", hovercolor="#a5d6a7")
+    btn_save.label.set_fontsize(9)
+    save_counter = [0]
+
+    def on_save(event):
+        save_counter[0] += 1
+        if mode["current"] == "naca":
+            m = naca_sliders["m"].val
+            p = naca_sliders["p"].val
+            t = naca_sliders["t"].val
+            n = int(naca_sliders["n"].val)
+            xu, yu, xl, yl, _, _ = naca4(m, p, t, n)
+            pname = f"NACA_{int(m)}{int(p)}{int(t):02d}"
+        else:
+            Au = [cst_sliders["A0u"].val, cst_sliders["A1u"].val]
+            Al = [cst_sliders["A0l"].val, cst_sliders["A1l"].val]
+            xu, yu, xl, yl = cst_profile(Au, Al)
+            pname = f"CST_{save_counter[0]:03d}"
+        filename = f"{pname}.dat"
+        save_selig(xu, yu, xl, yl, filename, pname)
+        btn_save.label.set_text(f"Gespeichert: {filename}")
+        fig.canvas.draw_idle()
+
+    btn_save.on_clicked(on_save)
+
+    # Analysieren
+    ax_anal = fig.add_axes([0.70, 0.28, 0.26, 0.05])
+    btn_anal = Button(ax_anal, "→ Jetzt analysieren", color="#bbdefb", hovercolor="#90caf9")
+    btn_anal.label.set_fontsize(9)
+
+    def on_analyse(event):
+        if mode["current"] == "naca":
+            m = naca_sliders["m"].val
+            p = naca_sliders["p"].val
+            t = naca_sliders["t"].val
+            n = int(naca_sliders["n"].val)
+            xu, yu, xl, yl, _, _ = naca4(m, p, t, n)
+            pname = f"NACA {int(m)}{int(p)}{int(t):02d}"
+        else:
+            Au = [cst_sliders["A0u"].val, cst_sliders["A1u"].val]
+            Al = [cst_sliders["A0l"].val, cst_sliders["A1l"].val]
+            xu, yu, xl, yl = cst_profile(Au, Al)
+            pname = "CST-Profil"
+        xp, yp = coords_to_closed(xu, yu, xl, yl)
+        plt.close(fig)
+        run_analysis_gui(xp, yp, pname)
+
+    btn_anal.on_clicked(on_analyse)
+
+    # Reset
+    ax_reset = fig.add_axes([0.70, 0.21, 0.26, 0.05])
+    btn_reset = Button(ax_reset, "Reset", color="#f0e6c8", hovercolor="#e0d0a0")
+    btn_reset.label.set_fontsize(9)
+
+    def on_reset(event):
+        for sl in naca_sliders.values():
+            sl.reset()
+        for sl in cst_sliders.values():
+            sl.reset()
+        btn_save.label.set_text("Selig .dat speichern")
+
+    btn_reset.on_clicked(on_reset)
+
+    # Update
+    def update(val):
+        if mode["current"] == "naca":
+            m = naca_sliders["m"].val
+            p = naca_sliders["p"].val
+            t = naca_sliders["t"].val
+            n = int(naca_sliders["n"].val)
+            xu, yu, xl, yl, xc, yc = naca4(m, p, t, n)
+            info = (f"NACA {int(m)}{int(p)}{int(t):02d}\n"
+                    f"Wölbung:  {m:.1f}%  @ {int(p)*10}% Tiefe\n"
+                    f"Dicke:    {t:.1f}%\n"
+                    f"Punkte:   {n}")
+            line_camber.set_data(xc, yc)
+            line_camber.set_visible(True)
+        else:
+            Au = [cst_sliders["A0u"].val, cst_sliders["A1u"].val]
+            Al = [cst_sliders["A0l"].val, cst_sliders["A1l"].val]
+            xu, yu, xl, yl = cst_profile(Au, Al)
+            xc = yc = []
+            info = (f"CST-Profil\n"
+                    f"Au = [{Au[0]:.2f}, {Au[1]:.2f}]\n"
+                    f"Al = [{Al[0]:.2f}, {Al[1]:.2f}]")
+            line_camber.set_visible(False)
+
+        line_upper.set_data(xu, yu)
+        line_lower.set_data(xl, yl)
+        fill_obj[0].remove()
+        fill_obj[0] = ax.fill(
+            np.concatenate([xu[::-1], xl]),
+            np.concatenate([yu[::-1], yl]),
+            alpha=0.12, color="steelblue"
+        )[0]
+        info_text.set_text(info)
+        fig.canvas.draw_idle()
+
+    for sl in naca_sliders.values():
+        sl.on_changed(update)
+    for sl in cst_sliders.values():
+        sl.on_changed(update)
+
+    update(None)
+    plt.suptitle("Airfoil Generator", fontsize=13, y=0.97, color="#222")
+    plt.show()
+
+
+# ═══════════════════════════════════════════════════════════════
+# PANEL-SOLVER
+# ═══════════════════════════════════════════════════════════════
+
+class PanelSolver:
+    def __init__(self, x, y):
+        if np.linalg.norm([x[0]-x[-1], y[0]-y[-1]]) < 1e-10:
+            x, y = x[:-1], y[:-1]
+        self.x = x
+        self.y = y
+        self.N = len(x)
+        self._build_panels()
+
+    def _build_panels(self):
+        x, y = self.x, self.y
+        xn, yn = np.roll(x, -1), np.roll(y, -1)
+        self.xc = 0.5*(x + xn)
+        self.yc = 0.5*(y + yn)
+        dx, dy = xn - x, yn - y
+        self.ds = np.sqrt(dx**2 + dy**2)
+        self.phi = np.arctan2(dy, dx)
+        self.nx = -np.sin(self.phi)
+        self.ny =  np.cos(self.phi)
+        self.tx =  np.cos(self.phi)
+        self.ty =  np.sin(self.phi)
+
+    def _src(self, xi, yi, xj, yj, phi_j, ds_j):
+        dx = xi - xj;  dy = yi - yj
+        A =  dx*np.cos(phi_j) + dy*np.sin(phi_j)
+        B = -dx*np.sin(phi_j) + dy*np.cos(phi_j)
+        if abs(B) < 1e-10:
+            B = 1e-10 * np.sign(B + 1e-20)
+        r1 = np.sqrt(A**2 + B**2)
+        r2 = np.sqrt((A - ds_j)**2 + B**2)
+        t1 = np.arctan2(B, A)
+        t2 = np.arctan2(B, A - ds_j)
+        ux = (1/(2*np.pi))*(np.log(r1/r2)*np.cos(phi_j) + (t2-t1)*np.sin(phi_j))
+        uy = (1/(2*np.pi))*(np.log(r1/r2)*np.sin(phi_j) - (t2-t1)*np.cos(phi_j))
+        return ux, uy
+
+    def _vrt(self, xi, yi, xj, yj, phi_j, ds_j):
+        dx = xi - xj;  dy = yi - yj
+        A =  dx*np.cos(phi_j) + dy*np.sin(phi_j)
+        B = -dx*np.sin(phi_j) + dy*np.cos(phi_j)
+        if abs(B) < 1e-10:
+            B = 1e-10 * np.sign(B + 1e-20)
+        r1 = np.sqrt(A**2 + B**2)
+        r2 = np.sqrt((A - ds_j)**2 + B**2)
+        t1 = np.arctan2(B, A)
+        t2 = np.arctan2(B, A - ds_j)
+        ux = (1/(2*np.pi))*((t2-t1)*np.cos(phi_j) + np.log(r1/r2)*np.sin(phi_j))
+        uy = (1/(2*np.pi))*((t2-t1)*np.sin(phi_j) - np.log(r1/r2)*np.cos(phi_j))
+        return ux, uy
+
+    def solve(self, alpha_deg, V_inf=1.0):
+        N = self.N
+        alpha = np.deg2rad(alpha_deg)
+        uinf = V_inf * np.array([np.cos(alpha), np.sin(alpha)])
+
+        A_s = np.zeros((N, N))
+        A_v = np.zeros(N)
+        for i in range(N):
+            xi, yi = self.xc[i], self.yc[i]
+            nxi, nyi = self.nx[i], self.ny[i]
+            for j in range(N):
+                ux, uy = self._src(xi, yi, self.x[j], self.y[j], self.phi[j], self.ds[j])
+                A_s[i, j] = ux*nxi + uy*nyi
+                ux, uy = self._vrt(xi, yi, self.x[j], self.y[j], self.phi[j], self.ds[j])
+                A_v[i] += ux*nxi + uy*nyi
+
+        rhs = -(uinf[0]*self.nx + uinf[1]*self.ny)
+
+        ks = np.zeros(N)
+        kv = 0.0
+        for j in range(N):
+            ux0, uy0 = self._src(self.xc[0],  self.yc[0],  self.x[j], self.y[j], self.phi[j], self.ds[j])
+            uxN, uyN = self._src(self.xc[-1], self.yc[-1], self.x[j], self.y[j], self.phi[j], self.ds[j])
+            ks[j] = (ux0*self.tx[0] + uy0*self.ty[0] + uxN*self.tx[-1] + uyN*self.ty[-1])
+            ux0, uy0 = self._vrt(self.xc[0],  self.yc[0],  self.x[j], self.y[j], self.phi[j], self.ds[j])
+            uxN, uyN = self._vrt(self.xc[-1], self.yc[-1], self.x[j], self.y[j], self.phi[j], self.ds[j])
+            kv += (ux0*self.tx[0] + uy0*self.ty[0] + uxN*self.tx[-1] + uyN*self.ty[-1])
+
+        rhs_k = -(uinf[0]*self.tx[0] + uinf[1]*self.ty[0] +
+                  uinf[0]*self.tx[-1] + uinf[1]*self.ty[-1])
+
+        M = np.zeros((N+1, N+1))
+        M[:N, :N] = A_s
+        M[:N,  N] = A_v
+        M[N,  :N] = ks
+        M[N,   N] = kv
+        sol = np.linalg.solve(M, np.append(rhs, rhs_k))
+        sigma = sol[:N]
+        gamma = sol[N]
+
+        ut = np.zeros(N)
+        for i in range(N):
+            xi, yi = self.xc[i], self.yc[i]
+            txi, tyi = self.tx[i], self.ty[i]
+            ut[i] = uinf[0]*txi + uinf[1]*tyi
+            for j in range(N):
+                ux, uy = self._src(xi, yi, self.x[j], self.y[j], self.phi[j], self.ds[j])
+                ut[i] += (ux*txi + uy*tyi)*sigma[j]
+                ux, uy = self._vrt(xi, yi, self.x[j], self.y[j], self.phi[j], self.ds[j])
+                ut[i] += (ux*txi + uy*tyi)*gamma
+
+        Cp = 1.0 - (ut/V_inf)**2
+        Gamma = gamma * np.sum(self.ds)
+        CL = -np.sum(Cp * self.ny * self.ds)
+        return sigma, gamma, Cp, CL, Gamma, ut
+
+
+def velocity_field(solver, sigma, gamma, alpha_deg, V_inf=1.0, nx=50, ny=32, margin=0.3):
+    alpha = np.deg2rad(alpha_deg)
+    uinf = V_inf * np.array([np.cos(alpha), np.sin(alpha)])
+    xg, yg = np.meshgrid(
+        np.linspace(solver.x.min()-margin, solver.x.max()+margin, nx),
+        np.linspace(solver.y.min()-margin, solver.y.max()+margin, ny)
+    )
+    ug = np.full_like(xg, uinf[0])
+    vg = np.full_like(xg, uinf[1])
+    for j in range(solver.N):
+        for i in range(ny):
+            for k in range(nx):
+                xi, yi = xg[i, k], yg[i, k]
+                ux, uy = solver._src(xi, yi, solver.x[j], solver.y[j], solver.phi[j], solver.ds[j])
+                ug[i,k] += ux*sigma[j];  vg[i,k] += uy*sigma[j]
+                ux, uy = solver._vrt(xi, yi, solver.x[j], solver.y[j], solver.phi[j], solver.ds[j])
+                ug[i,k] += ux*gamma;    vg[i,k] += uy*gamma
+    path = Path(np.column_stack([solver.x, solver.y]))
+    mask = path.contains_points(np.column_stack([xg.ravel(), yg.ravel()])).reshape(xg.shape)
+    return xg, yg, np.ma.masked_where(mask, ug), np.ma.masked_where(mask, vg)
+
+
+# ═══════════════════════════════════════════════════════════════
+# ANALYSE-GUI
+# ═══════════════════════════════════════════════════════════════
+
+def run_analysis_gui(x, y, name, alpha_init=5.0):
+    solver = PanelSolver(x, y)
+
+    fig = plt.figure(figsize=(14, 9))
+    fig.patch.set_facecolor("#f8f8f8")
+    gs = GridSpec(2, 2, figure=fig, hspace=0.40, wspace=0.32,
+                  left=0.07, right=0.97, top=0.88, bottom=0.13)
+
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax3 = fig.add_subplot(gs[1, 0])
+    ax4 = fig.add_subplot(gs[1, 1])
+
+    cmap = plt.cm.RdBu_r
+
+    # Slider für Anstellwinkel
+    ax_sl = fig.add_axes([0.20, 0.04, 0.60, 0.025])
+    sl_alpha = Slider(ax_sl, "Anstellwinkel α [°]", -10.0, 20.0,
+                      valinit=alpha_init, valstep=0.5)
+    sl_alpha.label.set_fontsize(9)
+    sl_alpha.valtext.set_fontsize(9)
+
+    # Zurück-Button
+    ax_back = fig.add_axes([0.03, 0.03, 0.10, 0.04])
+    btn_back = Button(ax_back, "← Generator", color="#eaeaea", hovercolor="#d0d0d0")
+    btn_back.label.set_fontsize(9)
+
+    # CL-Sweep-Button
+    ax_sweep = fig.add_axes([0.87, 0.03, 0.10, 0.04])
+    btn_sweep = Button(ax_sweep, "CL(α)-Sweep", color="#ffe0b2", hovercolor="#ffcc80")
+    btn_sweep.label.set_fontsize(9)
+
+    title_obj = [None]
+
+    # Colorbar-Handles merken um sie neu zu zeichnen
+    cb_handles = {"cb1": None, "cb3": None}
+
+    def draw(alpha_deg):
+        print(f"  Löse Panel-System für α = {alpha_deg:.1f}° ...", end=" ", flush=True)
+        sigma, gamma, Cp, CL, Gamma, ut = solver.solve(alpha_deg)
+        print(f"CL = {CL:+.4f}")
+
+        if title_obj[0] is not None:
+            title_obj[0].set_text(
+                f"Potentialströmung — {name}  |  α = {alpha_deg:.1f}°  |  "
+                f"CL = {CL:.4f}  |  Γ = {Gamma:.4f}"
+            )
+        else:
+            title_obj[0] = fig.suptitle(
+                f"Potentialströmung — {name}  |  α = {alpha_deg:.1f}°  |  "
+                f"CL = {CL:.4f}  |  Γ = {Gamma:.4f}",
+                fontsize=11, color="#222"
+            )
+
+        norm = plt.Normalize(vmin=min(-1.0, Cp.min()), vmax=max(1.0, Cp.max()))
+
+        # ── Ax1: Profil + Cp ──────────────────────────────────
+        ax1.cla()
+        ax1.set_facecolor("#f0f4fa")
+        ax1.set_aspect("equal")
+        ax1.set_title("Profil & Druckbeiwert Cp", fontsize=10)
+        ax1.set_xlabel("x/c", fontsize=9)
+        ax1.set_ylabel("y/c", fontsize=9)
+        for i in range(solver.N):
+            j = (i+1) % solver.N
+            ax1.plot([solver.x[i], solver.x[j]], [solver.y[i], solver.y[j]],
+                     color=cmap(norm(Cp[i])), linewidth=3)
+        ax1.fill(solver.x, solver.y, alpha=0.08, color="steelblue")
+        sm1 = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm1.set_array([])
+        if cb_handles["cb1"] is not None:
+            cb_handles["cb1"].remove()
+        cb_handles["cb1"] = fig.colorbar(sm1, ax=ax1, shrink=0.8, pad=0.02)
+        cb_handles["cb1"].set_label("Cp", fontsize=8)
+        cb_handles["cb1"].ax.tick_params(labelsize=7)
+        ax1.annotate("", xy=(solver.x.min()-0.05, 0),
+                     xytext=(solver.x.min()-0.20, 0),
+                     arrowprops=dict(arrowstyle="->", color="#444", linewidth=1.5))
+        ax1.text(solver.x.min()-0.22, 0.02, f"V∞, α={alpha_deg:.0f}°",
+                 fontsize=7, color="#444")
+
+        # ── Ax2: Cp(x) ────────────────────────────────────────
+        ax2.cla()
+        ax2.set_facecolor("white")
+        ax2.invert_yaxis()
+        ax2.set_title("Druckverteilung Cp(x/c)", fontsize=10)
+        ax2.set_xlabel("x/c", fontsize=9)
+        ax2.set_ylabel("Cp", fontsize=9)
+        ax2.grid(True, alpha=0.3, linewidth=0.5)
+        u_mask = solver.ny > 0
+        l_mask = solver.ny < 0
+        xu_ = solver.xc[u_mask];  Cpu = Cp[u_mask];  iu = np.argsort(xu_)
+        xl_ = solver.xc[l_mask];  Cpl = Cp[l_mask];  il = np.argsort(xl_)
+        ax2.plot(xu_[iu], Cpu[iu], "b-o", markersize=3, linewidth=1.5, label="Oberseite")
+        ax2.plot(xl_[il], Cpl[il], "r-o", markersize=3, linewidth=1.5, label="Unterseite")
+        ax2.axhline(0, color="#aaa", linewidth=0.8, linestyle="--")
+        ax2.fill_between(xu_[iu], Cpu[iu], 0, alpha=0.10, color="blue")
+        ax2.fill_between(xl_[il], Cpl[il], 0, alpha=0.10, color="red")
+        ax2.legend(fontsize=8)
+
+        # ── Ax3: Stromlinien ──────────────────────────────────
+        ax3.cla()
+        ax3.set_facecolor("#e8f0f8")
+        ax3.set_aspect("equal")
+        ax3.set_title("Stromlinien & Geschwindigkeit |u|", fontsize=10)
+        ax3.set_xlabel("x/c", fontsize=9)
+        ax3.set_ylabel("y/c", fontsize=9)
+        print("  Berechne Strömungsfeld ...", end=" ", flush=True)
+        xg, yg, ug, vg = velocity_field(solver, sigma, gamma, alpha_deg, nx=50, ny=32)
+        speed = np.sqrt(ug**2 + vg**2)
+        ax3.contourf(xg, yg, speed, levels=20, cmap="Blues", alpha=0.6)
+        ax3.streamplot(xg, yg, ug, vg, density=1.3, color="white",
+                       linewidth=0.6, arrowsize=0.8)
+        sm3 = plt.cm.ScalarMappable(cmap="Blues",
+              norm=plt.Normalize(speed.min(), speed.max()))
+        sm3.set_array([])
+        if cb_handles["cb3"] is not None:
+            cb_handles["cb3"].remove()
+        cb_handles["cb3"] = fig.colorbar(sm3, ax=ax3, shrink=0.8, pad=0.02)
+        cb_handles["cb3"].set_label("|u|/V∞", fontsize=8)
+        cb_handles["cb3"].ax.tick_params(labelsize=7)
+        ax3.fill(solver.x, solver.y, color="gray", alpha=0.8, zorder=5)
+        ax3.plot(solver.x, solver.y, "k-", linewidth=0.8, zorder=6)
+        print("fertig.")
+
+        # ── Ax4: u_t(s) ───────────────────────────────────────
+        ax4.cla()
+        ax4.set_facecolor("white")
+        ax4.set_title("Tangentialgeschwindigkeit u_t(s)", fontsize=10)
+        ax4.set_xlabel("s/c", fontsize=9)
+        ax4.set_ylabel("u_t/V∞", fontsize=9)
+        ax4.grid(True, alpha=0.3, linewidth=0.5)
+        s = np.cumsum(np.concatenate([[0], solver.ds]))
+        s_mid = 0.5*(s[:-1]+s[1:]) / s[-1]
+        ax4.plot(s_mid, ut, color="purple", linewidth=1.8)
+        ax4.axhline(0, color="#aaa", linewidth=0.8, linestyle="--")
+        ax4.fill_between(s_mid, ut, 0, alpha=0.12, color="purple")
+        for idx in np.where(np.diff(np.sign(ut)))[0]:
+            ax4.axvline(s_mid[idx], color="green", linewidth=1,
+                        linestyle=":", alpha=0.7)
+
+        fig.canvas.draw_idle()
+
+    def on_slider(val):
+        draw(sl_alpha.val)
+
+    def on_back(event):
+        plt.close(fig)
+        run_generator()
+
+    def on_sweep(event):
+        run_cl_sweep(solver, name)
+
+    sl_alpha.on_changed(on_slider)
+    btn_back.on_clicked(on_back)
+    btn_sweep.on_clicked(on_sweep)
+
+    draw(alpha_init)
+    plt.show()
+
+
+# ═══════════════════════════════════════════════════════════════
+# CL-SWEEP
+# ═══════════════════════════════════════════════════════════════
+
+def run_cl_sweep(solver, name, alphas=None):
+    if alphas is None:
+        alphas = np.linspace(-8, 16, 25)
+    CLs = []
+    print(f"\nCL-Sweep für {name}:")
+    for a in alphas:
+        _, _, _, CL, _, _ = solver.solve(a)
+        CLs.append(CL)
+        print(f"  α = {a:6.1f}°  CL = {CL:+.4f}")
+    CLs = np.array(CLs)
+    mask = (alphas > -5) & (alphas < 12)
+    coeffs = np.polyfit(np.deg2rad(alphas[mask]), CLs[mask], 1)
+    slope = coeffs[0]
+    aL0 = np.rad2deg(-coeffs[1] / coeffs[0])
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    fig.patch.set_facecolor("#f8f8f8")
+    ax.set_facecolor("white")
+    ax.plot(alphas, CLs, "o-", color="steelblue", linewidth=2,
+            markersize=5, label="Panel-Methode")
+    tat = 2*np.pi*(np.deg2rad(alphas) - np.deg2rad(aL0))
+    ax.plot(alphas, tat, "--", color="tomato", linewidth=1.5,
+            label=f"Dünnprofil-Th. (αL0 = {aL0:.1f}°)")
+    ax.axhline(0, color="#aaa", linewidth=0.8)
+    ax.axvline(0, color="#aaa", linewidth=0.8)
+    ax.axvspan(0, 10, alpha=0.05, color="green")
+    ax.grid(True, alpha=0.3, linewidth=0.5)
+    ax.set_xlabel("Anstellwinkel α [°]", fontsize=10)
+    ax.set_ylabel("Auftriebsbeiwert CL", fontsize=10)
+    ax.set_title(f"CL(α) — {name}\ndCL/dα = {slope:.3f}  (2π = {2*np.pi:.3f})",
+                 fontsize=10)
+    ax.legend(fontsize=9)
+    print(f"\n  dCL/dα = {slope:.4f}  (Theorie: {2*np.pi:.4f})")
+    print(f"  αL0    = {aL0:.2f}°")
+    plt.tight_layout()
+    plt.show()
+
+
+# ═══════════════════════════════════════════════════════════════
+# STARTMENÜ
+# ═══════════════════════════════════════════════════════════════
+
+def start_menu():
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    fig.patch.set_facecolor("#f8f8f8")
+    ax.axis("off")
+    fig.suptitle("Airfoil Tool", fontsize=15, color="#222", y=0.93)
+    ax.text(0.5, 0.72, "Profil generieren und analysieren",
+            ha="center", fontsize=10, color="#555", transform=ax.transAxes)
+
+    ax_gen  = fig.add_axes([0.15, 0.30, 0.32, 0.22])
+    ax_anal = fig.add_axes([0.53, 0.30, 0.32, 0.22])
+    btn_gen  = Button(ax_gen,  "Generator\n(Schieberegler)", color="#c8e6c9", hovercolor="#a5d6a7")
+    btn_anal = Button(ax_anal, "Analyse\n(Selig laden)",     color="#bbdefb", hovercolor="#90caf9")
+    btn_gen.label.set_fontsize(10)
+    btn_anal.label.set_fontsize(10)
+
+    ax.text(0.5, 0.06,
+            "oder:  python airfoil_tool.py gen\n"
+            "       python airfoil_tool.py analyse mein.dat 5.0",
+            ha="center", fontsize=8, color="#888", transform=ax.transAxes,
+            family="monospace")
+
+    def on_gen(event):
+        plt.close(fig)
+        run_generator()
+
+    def on_anal(event):
+        plt.close(fig)
+        path = input("Selig-Datei (.dat): ").strip()
+        try:
+            alpha = float(input("Anstellwinkel α [°] (Enter = 5°): ").strip() or "5")
+        except ValueError:
+            alpha = 5.0
+        xp, yp, nm = load_selig(path)
+        run_analysis_gui(xp, yp, nm, alpha)
+
+    btn_gen.on_clicked(on_gen)
+    btn_anal.on_clicked(on_anal)
+    plt.show()
+
+
+# ═══════════════════════════════════════════════════════════════
+# EINSTIEGSPUNKT
+# ═══════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+
+    if not args:
+        start_menu()
+    elif args[0] == "gen":
+        run_generator()
+    elif args[0] == "analyse":
+        if len(args) >= 2:
+            xp, yp, nm = load_selig(args[1])
+            alpha = float(args[2]) if len(args) >= 3 else 5.0
+        else:
+            xp, yp, nm = naca4_closed(4, 4, 12, 120)
+            alpha = 5.0
+        run_analysis_gui(xp, yp, nm, alpha)
+    else:
+        print("Unbekannter Befehl. Optionen: gen | analyse [datei.dat] [alpha]")
