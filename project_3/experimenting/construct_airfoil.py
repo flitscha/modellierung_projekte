@@ -1,423 +1,327 @@
 """
-Airfoil Design, Analysis & Optimization
-========================================
+Interaktiver Airfoil-Generator
+==============================
 Parametrisierung: NACA 4-stellig + CST (Class-Shape Transformation)
-Analyse:          Thin Airfoil Theory + XFOIL-Interface (optional)
-Optimierung:      scipy.optimize (differential_evolution)
 
 Anforderungen:
-    pip install numpy matplotlib scipy
-
-Optional (für XFOIL-Analyse):
-    XFOIL muss installiert sein: https://web.mit.edu/drela/Public/web/xfoil/
+    pip install numpy matplotlib
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import differential_evolution, minimize
-from scipy.interpolate import interp1d
-import subprocess
-import os
-import tempfile
-
-
-
+from matplotlib.widgets import Slider, Button, RadioButtons
+from matplotlib.patches import FancyArrowPatch
 
 
 # ─────────────────────────────────────────────────────────────
-# 1. AIRFOIL GEOMETRIE
+# Geometrie-Funktionen
 # ─────────────────────────────────────────────────────────────
 
 def naca4(m_pct, p_pct, t_pct, n=200):
-    """
-    NACA 4-stelliges Profil.
-
-    Parameter:
-        m_pct : maximale Wölbung in % der Profiltiefe (z.B. 4 → NACA 4xxx)
-        p_pct : Position der max. Wölbung in 10% (z.B. 4 → NACA x4xx)
-        t_pct : maximale Dicke in % (z.B. 12 → NACA xx12)
-        n     : Anzahl Punkte pro Seite
-    """
+    """NACA 4-stelliges Profil."""
     m = m_pct / 100.0
     p = p_pct / 10.0
     t = t_pct / 100.0
 
-    # Kosinus-Verteilung für bessere Auflösung an Vorder- und Hinterkante
     beta = np.linspace(0, np.pi, n)
     x = 0.5 * (1 - np.cos(beta))
 
-    # Dickenfunktion (NACA-Standard)
-    yt = 5 * t * (0.2969 * np.sqrt(x)
-                  - 0.1260 * x
-                  - 0.3516 * x**2
-                  + 0.2843 * x**3
-                  - 0.1015 * x**4)
-
-    # Wölbungslinie
-    yc = np.where(
-        x <= p,
-        (m / p**2) * (2 * p * x - x**2),
-        (m / (1 - p)**2) * ((1 - 2 * p) + 2 * p * x - x**2)
+    yt = 5 * t * (
+        0.2969 * np.sqrt(x)
+        - 0.1260 * x
+        - 0.3516 * x**2
+        + 0.2843 * x**3
+        - 0.1015 * x**4
     )
 
-    # Neigungswinkel der Wölbungslinie
-    if p == 0:
+    if p == 0 or m == 0:
+        yc = np.zeros_like(x)
         dyc_dx = np.zeros_like(x)
     else:
+        yc = np.where(
+            x <= p,
+            (m / p**2) * (2 * p * x - x**2),
+            (m / (1 - p)**2) * ((1 - 2 * p) + 2 * p * x - x**2),
+        )
         dyc_dx = np.where(
             x <= p,
             (2 * m / p**2) * (p - x),
-            (2 * m / (1 - p)**2) * (p - x)
+            (2 * m / (1 - p)**2) * (p - x),
         )
-    theta = np.arctan(dyc_dx)
 
-    # Obere / untere Kontur
+    theta = np.arctan(dyc_dx)
     xu = x  - yt * np.sin(theta)
     yu = yc + yt * np.cos(theta)
     xl = x  + yt * np.sin(theta)
     yl = yc - yt * np.cos(theta)
+    return xu, yu, xl, yl, x, yc
 
-    return xu, yu, xl, yl
 
-
-def cst_airfoil(Au, Al, n=200, t_te=0.002):
+def cst(Au, Al, n=200):
     """
-    CST-Parametrisierung (Class-Shape Transformation, Kulfan 2008).
-
-    Au : Liste von Koeffizienten für die Oberseite
-    Al : Liste von Koeffizienten für die Unterseite
-    t_te: Hinterkanten-Dicke (halbe Dicke, für 3D-Druck wichtig)
+    CST-Profil (Kulfan 2008).
+    Au, Al: Listen mit Koeffizienten (z.B. je 4 Werte).
     """
     x = 0.5 * (1 - np.cos(np.linspace(0, np.pi, n)))
+    C = np.sqrt(x) * (1 - x)  # Klassenfunktion N1=0.5, N2=1
 
-    def shape(x, A):
+    def shape(A):
         N = len(A) - 1
         S = np.zeros_like(x)
         for i, a in enumerate(A):
-            binom = np.math.comb(N, i)
-            S += a * binom * (x**i) * ((1 - x)**(N - i))
+            from math import comb
+            S += a * comb(N, i) * (x**i) * ((1 - x) ** (N - i))
         return S
 
-    C = x**0.5 * (1 - x)  # Klassenfunction C(1/2, 1)
-
-    yu =  C * shape(x, Au) + x * t_te
-    yl = -C * shape(x, Al) - x * t_te  # Vorzeichen: Unterseite negativ
-
+    yu =  C * shape(Au)
+    yl = -C * shape(Al)
     return x, yu, x, yl
 
 
-def to_selig(xu, yu, xl, yl, filename="airfoil.dat", name="AIRFOIL"):
-    """
-    Exportiert das Profil im Selig-Format.
-    Reihenfolge: Obere Hinterkante → Vorderkante → Untere Hinterkante (CCW)
-    """
-    # Obere Seite: von TE (x=1) zur LE (x=0)
+def to_selig(xu, yu, xl, yl):
+    """Gibt Koordinaten im Selig-Format zurück (numpy array)."""
     upper = np.column_stack([xu[::-1], yu[::-1]])
-    # Untere Seite: von LE (x=0) zu TE (x=1), ersten Punkt überspringen
     lower = np.column_stack([xl[1:], yl[1:]])
-    coords = np.vstack([upper, lower])
+    return np.vstack([upper, lower])
 
+
+def save_selig(xu, yu, xl, yl, filename, name="AIRFOIL"):
+    coords = to_selig(xu, yu, xl, yl)
     with open(filename, "w") as f:
         f.write(f"{name}\n")
         for x, y in coords:
             f.write(f"  {x:.6f}  {y:.6f}\n")
-    print(f"Gespeichert: {filename}")
-    return coords
+    print(f"Gespeichert: {filename}  ({len(coords)} Punkte)")
 
 
 # ─────────────────────────────────────────────────────────────
-# 2. THIN AIRFOIL THEORY
+# Interaktiver Plot
 # ─────────────────────────────────────────────────────────────
 
-def thin_airfoil_cl(alpha_deg, m_pct, p_pct):
-    """
-    Auftriebsbeiwert nach Dünner-Profiletheorie.
-    Cl = 2π(α + αL0)  mit αL0 = -2 * (m/p - m/(1-p)) * ... (vereinfacht)
+def main():
+    fig = plt.figure(figsize=(12, 7))
+    fig.patch.set_facecolor("#f8f8f8")
 
-    Für NACA 4-stellig:
-        αL0 ≈ -2 * m * (1 - 2p) / ... (numerische Integration)
-    """
-    alpha = np.deg2rad(alpha_deg)
-    m = m_pct / 100.0
-    p = p_pct / 10.0
-
-    # Numerische Integration für αL0
-    theta = np.linspace(0.0001, np.pi - 0.0001, 1000)
-    x = 0.5 * (1 - np.cos(theta))
-
-    if p > 0:
-        dyc_dx = np.where(
-            x <= p,
-            (2 * m / p**2) * (p - x),
-            (2 * m / (1 - p)**2) * (p - x)
-        )
-    else:
-        dyc_dx = np.zeros_like(x)
-
-    alpha_L0 = -(1 / np.pi) * np.trapz(dyc_dx * (1 - np.cos(theta)) / np.sin(theta), theta)
-
-    Cl = 2 * np.pi * (alpha - alpha_L0)
-    return Cl, np.rad2deg(alpha_L0)
-
-
-def cl_alpha_curve(m_pct, p_pct, alphas=None):
-    """Cl über Anstellwinkel 0–15°"""
-    if alphas is None:
-        alphas = np.linspace(-5, 15, 50)
-    cls = [thin_airfoil_cl(a, m_pct, p_pct)[0] for a in alphas]
-    return alphas, np.array(cls)
-
-
-# ─────────────────────────────────────────────────────────────
-# 3. XFOIL INTERFACE (optional)
-# ─────────────────────────────────────────────────────────────
-
-def run_xfoil(xu, yu, xl, yl, alphas, Re=500000, n_crit=9, max_iter=100):
-    """
-    Startet XFOIL und gibt Cl, Cd, Cm zurück.
-    Benötigt XFOIL im PATH. Gibt None zurück wenn nicht verfügbar.
-    """
-    try:
-        subprocess.run(["xfoil"], input="", capture_output=True, timeout=2)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        print("XFOIL nicht gefunden – überspringe XFOIL-Analyse.")
-        return None
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        coord_file = os.path.join(tmpdir, "airfoil.dat")
-        polar_file = os.path.join(tmpdir, "polar.dat")
-
-        to_selig(xu, yu, xl, yl, coord_file, "AIRFOIL")
-
-        cmds = [
-            f"LOAD {coord_file}",
-            "PANE",
-            "OPER",
-            f"VISC {Re}",
-            f"VPAR\nN {n_crit}\n\n",
-            f"ITER {max_iter}",
-            "PACC",
-            polar_file,
-            "",
-            f"ASEQ {alphas[0]} {alphas[-1]} {alphas[1]-alphas[0]}",
-            "PACC",
-            "",
-            "QUIT"
-        ]
-        input_str = "\n".join(cmds) + "\n"
-
-        subprocess.run(["xfoil"], input=input_str, capture_output=True,
-                       text=True, timeout=60)
-
-        if not os.path.exists(polar_file):
-            return None
-
-        data = np.loadtxt(polar_file, skiprows=12)
-        if data.ndim == 1:
-            data = data[np.newaxis, :]
-
-        return {
-            "alpha": data[:, 0],
-            "Cl":    data[:, 1],
-            "Cd":    data[:, 2],
-            "Cm":    data[:, 4],
-        }
-
-
-# ─────────────────────────────────────────────────────────────
-# 4. OPTIMIERUNG
-# ─────────────────────────────────────────────────────────────
-
-def objective_naca4(params):
-    """
-    Zielfunktion für NACA 4-stellig.
-    Maximiere: mittleren Cl über 0–10°
-    Minimiere: Varianz des Cl über 0–10° (gleichmäßiger Auftrieb)
-    Strafe:    zu dünne Profile (< 8%), zu dicke (> 18%)
-    """
-    m_pct, p_pct, t_pct = params
-    alphas = np.linspace(0, 10, 11)
-    cls = np.array([thin_airfoil_cl(a, m_pct, p_pct)[0] for a in alphas])
-
-    mean_cl = np.mean(cls)
-    var_cl  = np.var(cls)
-
-    # Strafe für ungültige Geometrie
-    penalty = 0
-    if t_pct < 8:
-        penalty += 10 * (8 - t_pct)**2    # zu dünn → Druckprobleme
-    if t_pct > 20:
-        penalty += 10 * (t_pct - 20)**2   # zu dick → zu viel Widerstand
-    if p_pct < 2:
-        penalty += 5 * (2 - p_pct)**2     # Max-Wölbung zu weit vorne
-
-    # Wir minimieren → negatives mean_cl + Varianzterm
-    return -mean_cl + 0.5 * var_cl + penalty
-
-
-def optimize_naca4():
-    """Globale Optimierung mit Differential Evolution"""
-    print("\n=== Optimierung läuft (NACA 4-digit) ===")
-    bounds = [
-        (1, 9),    # m: 1–9% Wölbung
-        (2, 7),    # p: Position 20–70%
-        (8, 18),   # t: Dicke 8–18%
-    ]
-    result = differential_evolution(
-        objective_naca4,
-        bounds,
-        seed=42,
-        maxiter=500,
-        tol=1e-6,
-        popsize=20,
-        mutation=(0.5, 1.5),
-        recombination=0.9,
-        disp=True
-    )
-    m, p, t = result.x
-    print(f"\nOptimales Profil: NACA {int(round(m))}{int(round(p))}{int(round(t)):02d}")
-    print(f"  Wölbung m = {m:.2f}%")
-    print(f"  Position p = {p:.2f} (×10%)")
-    print(f"  Dicke    t = {t:.2f}%")
-    return result.x
-
-
-# ─────────────────────────────────────────────────────────────
-# 5. VISUALISIERUNG
-# ─────────────────────────────────────────────────────────────
-
-def plot_airfoil(xu, yu, xl, yl, title="Airfoil"):
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(xu, yu, "b-", lw=2, label="Oberseite")
-    ax.plot(xl, yl, "r-", lw=2, label="Unterseite")
-    ax.fill(
-        np.concatenate([xu[::-1], xl]),
-        np.concatenate([yu[::-1], yl]),
-        alpha=0.15, color="steelblue"
-    )
+    # Hauptplot
+    ax = fig.add_axes([0.05, 0.42, 0.60, 0.50])
+    ax.set_facecolor("white")
     ax.set_aspect("equal")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    ax.set_xlabel("x/c")
-    ax.set_ylabel("y/c")
-    ax.set_title(title)
-    plt.tight_layout()
-    plt.savefig(title.replace(" ", "_") + ".png", dpi=150)
+    ax.set_xlim(-0.05, 1.05)
+    ax.set_ylim(-0.35, 0.35)
+    ax.grid(True, alpha=0.3, linewidth=0.5)
+    ax.set_xlabel("x/c", fontsize=10)
+    ax.set_ylabel("y/c", fontsize=10)
+    ax.set_title("Tragflächenprofil", fontsize=11, pad=8)
+
+    # Plot-Elemente
+    (line_upper,) = ax.plot([], [], "b-", lw=2, label="Oberseite")
+    (line_lower,) = ax.plot([], [], "r-", lw=2, label="Unterseite")
+    (line_camber,) = ax.plot([], [], "g--", lw=1, alpha=0.7, label="Wölbungslinie")
+    fill_obj = [ax.fill([], [], alpha=0.12, color="steelblue")[0]]
+    ax.legend(loc="upper right", fontsize=8)
+
+    # Info-Text
+    info_text = ax.text(
+        0.02, 0.97, "", transform=ax.transAxes,
+        va="top", fontsize=9, family="monospace",
+        color="#333333",
+    )
+
+    # ── NACA-4 Schieberegler ──────────────────────────────────
+    slider_ax = {}
+    naca_sliders = {}
+
+    slider_defs = [
+        ("m",  "Wölbung m [%]",     0.0, 9.5, 4.0, 0.1),
+        ("p",  "Position p [×10%]", 1.0, 7.0, 4.0, 0.5),
+        ("t",  "Dicke t [%]",       4.0, 30.0, 12.0, 0.5),
+        ("n",  "Punkte n",          50,  500,  200,  10),
+    ]
+
+    for i, (key, label, vmin, vmax, vinit, vstep) in enumerate(slider_defs):
+        left  = 0.07
+        bot   = 0.30 - i * 0.065
+        ax_s  = fig.add_axes([left, bot, 0.52, 0.025])
+        sl    = Slider(ax_s, label, vmin, vmax, valinit=vinit, valstep=vstep)
+        sl.label.set_fontsize(9)
+        sl.valtext.set_fontsize(9)
+        naca_sliders[key] = sl
+        slider_ax[key] = ax_s
+
+    # ── CST Schieberegler ─────────────────────────────────────
+    cst_slider_defs = [
+        ("A0u", "Au[0]", 0.0, 0.5, 0.17, 0.01),
+        ("A1u", "Au[1]", 0.0, 0.5, 0.22, 0.01),
+        ("A0l", "Al[0]", 0.0, 0.5, 0.15, 0.01),
+        ("A1l", "Al[1]", 0.0, 0.5, 0.10, 0.01),
+    ]
+    cst_sliders = {}
+    for i, (key, label, vmin, vmax, vinit, vstep) in enumerate(cst_slider_defs):
+        left = 0.07
+        bot  = 0.30 - i * 0.065
+        ax_s = fig.add_axes([left, bot, 0.52, 0.025])
+        sl   = Slider(ax_s, label, vmin, vmax, valinit=vinit, valstep=vstep)
+        sl.label.set_fontsize(9)
+        sl.valtext.set_fontsize(9)
+        cst_sliders[key] = sl
+        ax_s.set_visible(False)
+
+    # ── Modus-Wahl ────────────────────────────────────────────
+    ax_radio = fig.add_axes([0.70, 0.72, 0.13, 0.12])
+    radio = RadioButtons(ax_radio, ("NACA 4-digit", "CST"), active=0)
+    for label in radio.labels:
+        label.set_fontsize(9)
+
+    mode = {"current": "naca"}
+
+    def switch_mode(label):
+        if label == "NACA 4-digit":
+            mode["current"] = "naca"
+            for ax_s in slider_ax.values():
+                ax_s.set_visible(True)
+            for key, sl in cst_sliders.items():
+                sl.ax.set_visible(False)
+        else:
+            mode["current"] = "cst"
+            for ax_s in slider_ax.values():
+                ax_s.set_visible(False)
+            for key, sl in cst_sliders.items():
+                sl.ax.set_visible(True)
+        update(None)
+        fig.canvas.draw_idle()
+
+    radio.on_clicked(switch_mode)
+
+    # ── Preset-Buttons ────────────────────────────────────────
+    ax_pre_label = fig.add_axes([0.70, 0.64, 0.13, 0.02])
+    ax_pre_label.axis("off")
+    ax_pre_label.text(0.5, 0.5, "Presets", ha="center", fontsize=9, color="#555")
+
+    presets = [
+        ("NACA 0012", 0, 0, 12),
+        ("NACA 2412", 2, 4, 12),
+        ("NACA 4412", 4, 4, 12),
+        ("NACA 6412", 6, 4, 12),
+        ("NACA 4415", 4, 4, 15),
+        ("NACA 6415", 6, 4, 15),
+    ]
+    preset_buttons = []
+    for i, (name, m, p, t) in enumerate(presets):
+        row, col = divmod(i, 2)
+        bax = fig.add_axes([0.70 + col * 0.07, 0.55 - row * 0.055, 0.065, 0.038])
+        btn = Button(bax, name, color="#eaeaea", hovercolor="#d0d0d0")
+        btn.label.set_fontsize(7.5)
+
+        def make_cb(m_, p_, t_):
+            def cb(event):
+                radio.set_active(0)
+                switch_mode("NACA 4-digit")
+                naca_sliders["m"].set_val(m_)
+                naca_sliders["p"].set_val(p_)
+                naca_sliders["t"].set_val(t_)
+            return cb
+
+        btn.on_clicked(make_cb(m, p, t))
+        preset_buttons.append(btn)
+
+    # ── Speichern-Button ──────────────────────────────────────
+    ax_save = fig.add_axes([0.70, 0.26, 0.26, 0.05])
+    btn_save = Button(ax_save, "Selig .dat speichern", color="#c8e6c9", hovercolor="#a5d6a7")
+    btn_save.label.set_fontsize(9)
+
+    save_counter = [0]
+
+    def on_save(event):
+        save_counter[0] += 1
+        if mode["current"] == "naca":
+            m = naca_sliders["m"].val
+            p = naca_sliders["p"].val
+            t = naca_sliders["t"].val
+            n = int(naca_sliders["n"].val)
+            xu, yu, xl, yl, _, _ = naca4(m, p, t, n)
+            name = f"NACA_{int(m)}{int(p)}{int(t):02d}"
+        else:
+            Au = [cst_sliders["A0u"].val, cst_sliders["A1u"].val]
+            Al = [cst_sliders["A0l"].val, cst_sliders["A1l"].val]
+            xu, yu, xl, yl = cst(Au, Al)
+            name = f"CST_{save_counter[0]:03d}"
+        filename = f"{name}.dat"
+        save_selig(xu, yu, xl, yl, filename, name)
+        btn_save.label.set_text(f"Gespeichert: {filename}")
+        fig.canvas.draw_idle()
+
+    btn_save.on_clicked(on_save)
+
+    # ── Reset-Button ──────────────────────────────────────────
+    ax_reset = fig.add_axes([0.70, 0.20, 0.26, 0.05])
+    btn_reset = Button(ax_reset, "Reset", color="#f0e6c8", hovercolor="#e0d0a0")
+    btn_reset.label.set_fontsize(9)
+
+    def on_reset(event):
+        for sl in naca_sliders.values():
+            sl.reset()
+        for sl in cst_sliders.values():
+            sl.reset()
+        btn_save.label.set_text("Selig .dat speichern")
+
+    btn_reset.on_clicked(on_reset)
+
+    # ── Update-Funktion ───────────────────────────────────────
+    def update(val):
+        if mode["current"] == "naca":
+            m = naca_sliders["m"].val
+            p = naca_sliders["p"].val
+            t = naca_sliders["t"].val
+            n = int(naca_sliders["n"].val)
+            xu, yu, xl, yl, xc, yc = naca4(m, p, t, n)
+            name = f"NACA {int(m)}{int(p)}{int(t):02d}"
+            t_max = t
+            # Max-Dicke Näherung
+            t_pos = 0.3  # ungefähre Position des Dickenmaximums
+            info = (
+                f"{name}\n"
+                f"Wölbung:   {m:.1f}%  @ {int(p)*10}% Tiefe\n"
+                f"Dicke:     {t:.1f}%\n"
+                f"Punkte:    {n}"
+            )
+            line_camber.set_data(xc, yc)
+            line_camber.set_visible(True)
+        else:
+            Au = [cst_sliders["A0u"].val, cst_sliders["A1u"].val]
+            Al = [cst_sliders["A0l"].val, cst_sliders["A1l"].val]
+            xu, yu, xl, yl = cst(Au, Al)
+            xc = yc = []
+            info = (
+                f"CST-Profil\n"
+                f"Au = [{Au[0]:.2f}, {Au[1]:.2f}]\n"
+                f"Al = [{Al[0]:.2f}, {Al[1]:.2f}]"
+            )
+            line_camber.set_visible(False)
+
+        line_upper.set_data(xu, yu)
+        line_lower.set_data(xl, yl)
+
+        # Füllung aktualisieren
+        fill_obj[0].remove()
+        fill_obj[0] = ax.fill(
+            np.concatenate([xu[::-1], xl]),
+            np.concatenate([yu[::-1], yl]),
+            alpha=0.12, color="steelblue"
+        )[0]
+
+        info_text.set_text(info)
+        fig.canvas.draw_idle()
+
+    for sl in naca_sliders.values():
+        sl.on_changed(update)
+    for sl in cst_sliders.values():
+        sl.on_changed(update)
+
+    update(None)
+
+    plt.suptitle("Airfoil Generator", fontsize=13, y=0.97, color="#222")
     plt.show()
 
-
-def plot_cl_comparison(profiles: dict, alphas=None):
-    """
-    Vergleicht Cl(α)-Kurven mehrerer Profile.
-    profiles = {"NACA 4412": (m, p), "NACA 2412": (2, 4), ...}
-    """
-    if alphas is None:
-        alphas = np.linspace(0, 12, 50)
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    for label, (m, p) in profiles.items():
-        _, cls = cl_alpha_curve(m, p, alphas)
-        ax.plot(alphas, cls, lw=2, label=label)
-
-    ax.axvspan(0, 10, alpha=0.08, color="green", label="Zielbereich 0–10°")
-    ax.set_xlabel("Anstellwinkel α [°]")
-    ax.set_ylabel("Auftriebsbeiwert Cl")
-    ax.set_title("Cl(α) – Profilvergleich (Thin Airfoil Theory)")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig("cl_comparison.png", dpi=150)
-    plt.show()
-
-
-def plot_cl_uniformity(m_pct, p_pct, t_pct):
-    """Zeigt Cl im Zielbereich 0–10° mit Gleichmäßigkeitsmetrik"""
-    alphas = np.linspace(0, 10, 50)
-    cls = [thin_airfoil_cl(a, m_pct, p_pct)[0] for a in alphas]
-
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(alphas, cls, "b-", lw=2)
-    ax.fill_between(alphas, cls, alpha=0.15)
-    ax.set_xlabel("Anstellwinkel α [°]")
-    ax.set_ylabel("Cl")
-    ax.set_title(f"Cl(α) für NACA {int(m_pct)}{int(p_pct)}{int(t_pct):02d}  "
-                 f"| ΔCl = {max(cls)-min(cls):.3f}")
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig("cl_uniformity.png", dpi=150)
-    plt.show()
-
-
-# ─────────────────────────────────────────────────────────────
-# 6. HAUPTPROGRAMM
-# ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-
-    # ── Schritt 1: Referenzprofile vergleichen ──────────────────
-    print("=" * 55)
-    print("  AIRFOIL ANALYSIS & OPTIMIZATION")
-    print("=" * 55)
-
-    profiles_to_compare = {
-        "NACA 4412": (4, 4),
-        "NACA 6412": (6, 4),
-        "NACA 4415": (4, 4),
-        "NACA 2412": (2, 4),
-    }
-    plot_cl_comparison(profiles_to_compare)
-
-    for name, (m, p) in profiles_to_compare.items():
-        alphas_target = np.linspace(0, 10, 11)
-        cls = [thin_airfoil_cl(a, m, p)[0] for a in alphas_target]
-        _, alpha_L0 = thin_airfoil_cl(0, m, p)
-        print(f"\n{name}:")
-        print(f"  αL0       = {alpha_L0:.2f}°")
-        print(f"  Cl bei 5° = {thin_airfoil_cl(5, m, p)[0]:.3f}")
-        print(f"  Cl-Mittel (0–10°) = {np.mean(cls):.3f}")
-        print(f"  Cl-Varianz (0–10°)= {np.var(cls):.4f}")
-
-    # ── Schritt 2: Optimierung ──────────────────────────────────
-    opt_params = optimize_naca4()
-    m_opt, p_opt, t_opt = opt_params
-
-    # ── Schritt 3: Optimiertes Profil generieren ────────────────
-    xu, yu, xl, yl = naca4(m_opt, p_opt, t_opt, n=200)
-
-    name_opt = f"NACA_{int(round(m_opt))}{int(round(p_opt))}{int(round(t_opt)):02d}_opt"
-    plot_airfoil(xu, yu, xl, yl, title=name_opt)
-    plot_cl_uniformity(m_opt, p_opt, t_opt)
-
-    # ── Schritt 4: Selig-Export ─────────────────────────────────
-    to_selig(xu, yu, xl, yl,
-             filename=f"{name_opt}.dat",
-             name=name_opt)
-
-    # ── Schritt 5: Optional XFOIL ──────────────────────────────
-    alphas_xfoil = np.arange(0, 11, 1.0)
-    polar = run_xfoil(xu, yu, xl, yl, alphas=alphas_xfoil, Re=500_000)
-
-    if polar is not None:
-        print("\n=== XFOIL Polar ===")
-        print(f"{'α':>6}  {'Cl':>6}  {'Cd':>7}  {'Cl/Cd':>8}")
-        for i in range(len(polar["alpha"])):
-            ld = polar["Cl"][i] / polar["Cd"][i] if polar["Cd"][i] > 0 else 0
-            print(f"{polar['alpha'][i]:6.1f}  {polar['Cl'][i]:6.3f}  "
-                  f"{polar['Cd'][i]:7.5f}  {ld:8.1f}")
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-        ax1.plot(polar["alpha"], polar["Cl"], "b-o")
-        ax1.set_xlabel("α [°]"); ax1.set_ylabel("Cl")
-        ax1.set_title("Cl(α) – XFOIL"); ax1.grid(True, alpha=0.3)
-
-        ax2.plot(polar["Cd"], polar["Cl"], "r-o")
-        ax2.set_xlabel("Cd"); ax2.set_ylabel("Cl")
-        ax2.set_title("Polarer – XFOIL"); ax2.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig("xfoil_polar.png", dpi=150)
-        plt.show()
-    else:
-        print("\nTipp: Installiere XFOIL für Drag & viskose Effekte.")
-        print("  https://web.mit.edu/drela/Public/web/xfoil/")
-
-    print("\nFertig! Selig-Datei und Plots gespeichert.")
+    main()
