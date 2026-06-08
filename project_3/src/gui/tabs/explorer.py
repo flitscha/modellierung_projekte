@@ -290,7 +290,7 @@ def _redraw():
     # draw geometry
     airfoil = _s.design.build_airfoil(_s.params)
     if _s.mode == "geometry":
-        pixel_data = render_geometry(airfoil, CANVAS_W, CANVAS_H)
+        pixel_data = render_geometry(airfoil, CANVAS_W, CANVAS_H, alpha_deg=_s.live_alpha)
         dpg.set_value(_s.texture_tag, pixel_data)
 
     # Update geometry numerical information strings
