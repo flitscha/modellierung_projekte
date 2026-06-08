@@ -5,7 +5,7 @@ Select an airfoil design, tweak parameters with sliders
 import dearpygui.dearpygui as dpg
 
 from core.parameter import IntParameter
-from gui.airfoil_canvas import render_geometry 
+from gui.airfoil_canvas import render_geometry, render_pressure_analysis
 from simulations.solver import solve_panel_method
 from simulations.simulate_in_range import evaluate_cl_range
 
@@ -20,7 +20,7 @@ class _State:
         self.params: dict = {}
         self.texture_tag = None
         self.dirty = False
-        self.mode = "geometry"
+        self.mode = "pressure"
         self.solver_enabled = True # panel-solver
         self.live_alpha = 0.0
 
@@ -86,14 +86,14 @@ def _build_top_bar(designs, designs_by_name):
         dpg.add_spacer(width=30)
         dpg.add_text("View:")
         dpg.add_combo(
-            items=["geometry"], # For now only geometry, later "pressure_distribution"
-            default_value="geometry",
+            items=["geometry", "pressure"], # For now only geometry, later "pressure_distribution"
+            default_value="pressure",
             width=120,
             callback=lambda s, v: _set_mode(v),
         )
         dpg.add_spacer(width=20)
         dpg.add_checkbox(
-            label="Live Simulation (0° AoA)",
+            label="Live Simulation",
             default_value=True,
             callback=lambda s, v: _set_solver_mode(v),
         )
@@ -134,7 +134,7 @@ def _build_controls():
             dpg.add_slider_float(
                 label="Angle of Attack (Alpha)",
                 default_value=_s.live_alpha,
-                min_value=0.0,
+                min_value=-10.0,
                 max_value=10.0,
                 format="%.1f deg",
                 width=340,
@@ -287,28 +287,34 @@ def _redraw():
     else:
         _set_status("Geometry OK", (0, 255, 0))
 
-    # draw geometry
     airfoil = _s.design.build_airfoil(_s.params)
-    if _s.mode == "geometry":
-        pixel_data = render_geometry(airfoil, CANVAS_W, CANVAS_H, alpha_deg=_s.live_alpha)
-        dpg.set_value(_s.texture_tag, pixel_data)
 
     # Update geometry numerical information strings
     dpg.set_value("explorer_thickness", f"{_s.params['thickness']*100:.1f} %")
     dpg.set_value("explorer_camber", f"{_s.params['camber']*100:.1f} %")
 
-    # live calculations (only at 0° angle of attack)
-    if not _s.solver_enabled:
+    # live calculations
+    results = None
+    if _s.solver_enabled:
+        try:
+            results = solve_panel_method(airfoil, alpha_deg=_s.live_alpha)
+            live_cl = results["cl"]
+            dpg.set_value("explorer_mean_cl", f"{live_cl:.4f}")
+        except Exception as e:
+            _set_status(f"Live solver error: {e}", (255, 100, 100))
+            dpg.set_value("explorer_mean_cl", "--")
+    else:
         dpg.set_value("explorer_mean_cl", "Disabled")
-        return
-    try:
-        results = solve_panel_method(airfoil, alpha_deg=_s.live_alpha)
-        live_cl = results["cl"]
-        dpg.set_value("explorer_mean_cl", f"{live_cl:.4f}")
 
-    except Exception as e:
-        _set_status(f"Live solver error: {e}", (255, 100, 100))
-        dpg.set_value("explorer_mean_cl", "--")
+
+    # draw geometry
+    if _s.mode == "geometry":
+        pixel_data = render_geometry(airfoil, CANVAS_W, CANVAS_H, alpha_deg=_s.live_alpha)
+        dpg.set_value(_s.texture_tag, pixel_data)
+    if _s.mode == "pressure" and results is not None:
+        pixel_data = render_pressure_analysis(airfoil, CANVAS_W, CANVAS_H, alpha_deg=_s.live_alpha, solver_results=results)
+        dpg.set_value(_s.texture_tag, pixel_data)
+
 
 
 # ----------------- Helpers ------------------------------
