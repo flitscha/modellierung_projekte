@@ -6,6 +6,8 @@ import dearpygui.dearpygui as dpg
 
 from core.parameter import IntParameter
 from gui.airfoil_canvas import render_geometry 
+from simulations.solver import solve_panel_method
+from simulations.simulate_in_range import evaluate_cl_range
 
 CANVAS_W = 1000
 CANVAS_H = 600
@@ -90,7 +92,7 @@ def _build_top_bar(designs, designs_by_name):
         )
         dpg.add_spacer(width=20)
         dpg.add_checkbox(
-            label="Live Simulation",
+            label="Live Simulation (0° AoA)",
             default_value=True,
             callback=lambda s, v: _set_solver_mode(v),
         )
@@ -110,7 +112,7 @@ def _build_canvas():
         dpg.add_text("Max Camber: ", color=(160, 160, 180))
         dpg.add_text("-- %", tag="explorer_camber", color=(255, 200, 10))
         dpg.add_spacer(width=20)
-        dpg.add_text("Mean Cl (0-10 deg): ", color=(160, 160, 180))
+        dpg.add_text("Live Cl (0°): ", color=(160, 160, 180))
         dpg.add_text("--", tag="explorer_mean_cl", color=(255, 200, 10))
 
 
@@ -122,15 +124,38 @@ def _build_controls():
 
 
 def _build_actions():
-    with dpg.group():
-        dpg.add_text("Actions", color=(200, 200, 200))
-        dpg.add_separator()
-        dpg.add_spacer(height=6)
-        dpg.add_button(label="Analyse", width=160, height=36, callback=_on_analyse)
-        dpg.add_spacer(height=6)
-        dpg.add_button(label="Export Selig", width=160, height=36, callback=_on_export_selig)
-        dpg.add_spacer(height=6)
-        dpg.add_button(label="Randomise", width=160, height=36, callback=_randomise)
+    # Use a horizontal layout container to place actions and detailed results side-by-side
+    with dpg.group(horizontal=True):
+        # Left side: Action Buttons
+        with dpg.group():
+            dpg.add_text("Actions", color=(200, 200, 200))
+            dpg.add_separator()
+            dpg.add_spacer(height=6)
+            dpg.add_button(label="Analyse (0°-10°)", width=160, height=36, callback=_on_run_full_analysis)
+            dpg.add_spacer(height=6)
+            dpg.add_button(label="Export Selig", width=160, height=36, callback=_on_export_selig)
+            dpg.add_spacer(height=6)
+            dpg.add_button(label="Randomise", width=160, height=36, callback=_randomise)
+
+        dpg.add_spacer(width=30)
+
+        # Right side: Detailed Sweep Results (Populated when user clicks "Analyse")
+        with dpg.group():
+            dpg.add_text("Range Analysis Results (0° to 10°)", color=(200, 200, 200))
+            dpg.add_separator()
+            dpg.add_spacer(height=6)
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("Minimum Cl: ", color=(160, 160, 180))
+                dpg.add_text("N/A", tag="explorer_min_cl", color=(100, 220, 255))
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("Maximum Cl: ", color=(160, 160, 180))
+                dpg.add_text("N/A", tag="explorer_max_cl", color=(100, 220, 255))
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("Average Cl: ", color=(160, 160, 180))
+                dpg.add_text("N/A", tag="explorer_avg_cl", color=(100, 220, 255))
 
 
 # -------------- Logic -----------------------
@@ -166,7 +191,6 @@ def _rebuild_sliders(design):
         if isinstance(p, IntParameter):
             dpg.add_slider_int(default_value=int(val), **kwargs)
         else:
-            # Modified format string to show pure fraction values
             dpg.add_slider_float(default_value=float(val), format="%.3f", **kwargs)
 
 
@@ -189,20 +213,6 @@ def _randomise():
         _set_status("Could not randomise", (255, 180, 0))
 
 
-def _on_analyse():
-    if _s.design is None:
-        return
-    if not _s.design.validate(_s.params):
-        _set_status("Cannot analyse - invalid parameters", (255, 180, 0))
-        return
-    from gui.tabs import analysis
-    airfoil = _s.design.build_airfoil(_s.params)
-    try:
-        analysis.load_design(airfoil)
-    except NotImplementedError:
-        analysis.load_geometry(airfoil)
-
-
 def _on_export_selig():
     if _s.design is None:
         return
@@ -215,6 +225,31 @@ def _on_export_selig():
     _set_status(f"Saved: {filename}", (100, 220, 100))
 
 
+def _on_run_full_analysis():
+    """Triggered manually by the 'Analyse' button. Computes the expensive 0-10 deg sweep."""
+    if _s.design is None:
+        _set_status("Cannot analyse - no design loaded", (255, 180, 0))
+        return
+
+    _set_status("Analysing range...", (255, 200, 10))
+    airfoil = _s.design.build_airfoil(_s.params)
+
+    try:
+        stats = evaluate_cl_range(airfoil, start_deg=0.0, end_deg=10.0, step_deg=1.0)
+
+        # Populate the detailed panel labels with results
+        if dpg.does_item_exist("explorer_min_cl"):
+            dpg.set_value("explorer_min_cl", f"{stats['min_cl']:.4f}")
+        if dpg.does_item_exist("explorer_max_cl"):
+            dpg.set_value("explorer_max_cl", f"{stats['max_cl']:.4f}")
+        if dpg.does_item_exist("explorer_avg_cl"):
+            dpg.set_value("explorer_avg_cl", f"{stats['mean_cl']:.4f}")
+
+        _set_status("Analysis complete", (0, 255, 0))
+    except Exception as e:
+        _set_status(f"Analysis error: {e}", (255, 100, 100))
+
+
 def _redraw():
     _set_status("ok", (0, 255, 0))
     if _s.design is None:
@@ -222,30 +257,30 @@ def _redraw():
 
     if not _s.design.validate(_s.params):
         _set_status("Invalid parameters", (255, 180, 0))
+    else:
+        _set_status("Geometry OK", (0, 255, 0))
 
     # draw geometry
     airfoil = _s.design.build_airfoil(_s.params)
     if _s.mode == "geometry":
         pixel_data = render_geometry(airfoil, CANVAS_W, CANVAS_H)
         dpg.set_value(_s.texture_tag, pixel_data)
-    else:
-        # Placeholder for future view modes (e.g., pressure distribution)
-        pass
 
     # Update geometry numerical information strings
     dpg.set_value("explorer_thickness", f"{_s.params['thickness']*100:.1f} %")
     dpg.set_value("explorer_camber", f"{_s.params['camber']*100:.1f} %")
 
-    # Panel solver calculations (when implemented and enabled)
+    # live calculations (only at 0° angle of attack)
     if not _s.solver_enabled:
+        dpg.set_value("explorer_mean_cl", "Disabled")
         return
     try:
-        # TODO: Implement vortex panel method solver trigger here later
-        # mean_cl = solve_panel_method(airfoil)
-        # dpg.set_value("explorer_mean_cl", f"{mean_cl:.3f}")
-        pass
+        results = solve_panel_method(airfoil, alpha_deg=0.0)
+        live_cl = results["cl"]
+        dpg.set_value("explorer_mean_cl", f"{live_cl:.4f}")
+
     except Exception as e:
-        _set_status(f"Solver error: {e}", (255, 100, 100))
+        _set_status(f"Live solver error: {e}", (255, 100, 100))
         dpg.set_value("explorer_mean_cl", "--")
 
 
