@@ -5,7 +5,7 @@ Tabs:
     Optimizer       - lift maximisation under geometric constraints (Coming soon)
 """
 import dearpygui.dearpygui as dpg
-from gui.tabs import explorer
+from gui.tabs import explorer, optimization
 
 
 def run(designs: list):
@@ -23,10 +23,10 @@ def run(designs: list):
         dpg.add_text("Airfoil Design Tool", color=(200, 220, 255))
         dpg.add_separator()
         dpg.add_spacer(height=4)
-        
+
         with dpg.tab_bar(tag="main_tabs"):
             explorer.build("main_tabs", designs)
-            # optimization.build("main_tabs", designs)
+            optimization.build("main_tabs", designs)
 
     dpg.set_primary_window("main_window", True)
     dpg.show_viewport()
@@ -34,7 +34,7 @@ def run(designs: list):
     # Render-Schleife: Ruft tick() für jeden aktiven Tab auf
     while dpg.is_dearpygui_running():
         explorer.tick()
-        # optimization.tick()
+        optimization.tick()
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()
