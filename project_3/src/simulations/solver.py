@@ -41,7 +41,7 @@ def solve_panel_method(airfoil: Airfoil, alpha_deg: float, v_inf: float = 1.0) -
 
     # Outward normal and tangent angles for each panel i
     delta_i = theta_j + np.pi / 2.0
-    beta_i = delta_i - alpha  # Angle between V_inf and panel normal (Page 3, p. 363, source 358)
+    beta_i = delta_i + alpha  # Angle between V_inf and panel normal (Page 3, p. 363, source 358)
 
     # 2. INFLUENCE COEFFICIENT MATRIX A (Page 3, p. 363)
     # Setting up the system of linear algebraic equations: A * gamma = b
@@ -94,7 +94,7 @@ def solve_panel_method(airfoil: Airfoil, alpha_deg: float, v_inf: float = 1.0) -
 
     # 4. POST-PROCESSING: LIFT & CIRCULATION (Page 5, p. 365)
     # Total circulation Gamma = Sum( gamma_j * s_j ) -> Equation (4.82) (source 430)
-    total_gamma = np.sum(gamma * s_j)
+    total_gamma = -np.sum(gamma * s_j) # negative value, since we have counter-clockwise order
 
     # Lift per unit span L_prime = rho * V_inf * Gamma -> Equation (4.83) (source 431)
     # Assuming normalized density rho = 1.0
@@ -107,7 +107,7 @@ def solve_panel_method(airfoil: Airfoil, alpha_deg: float, v_inf: float = 1.0) -
     cl = lift_prime / (0.5 * rho * (v_inf**2) * chord)
 
     # Local velocity tangential to the surface V_local = gamma_j (Page 5, p. 365, source 422)
-    v_local = gamma
+    v_local = -gamma # negative, since we have counter-clockwise order
 
     # Local pressure coefficient distribution from Bernoulli's equation (Page 5, p. 365, source 423)
     cp = 1.0 - (v_local / v_inf)**2
