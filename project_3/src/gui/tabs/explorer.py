@@ -22,6 +22,7 @@ class _State:
         self.dirty = False
         self.mode = "geometry"
         self.solver_enabled = True # panel-solver
+        self.live_alpha = 0.0
 
 
 _s = _State()
@@ -118,7 +119,29 @@ def _build_canvas():
 
 def _build_controls():
     with dpg.group(horizontal=True):
-        dpg.add_group(tag="slider_group")
+        # Left side container for parameters and the new AoA control
+        with dpg.group():
+            dpg.add_text("Geometry Design Parameters", color=(200, 200, 200))
+            dpg.add_separator()
+            dpg.add_spacer(height=4)
+            dpg.add_group(tag="slider_group")
+            dpg.add_spacer(height=10)
+
+            dpg.add_text("Simulation Parameters", color=(200, 200, 200))
+            dpg.add_separator()
+            dpg.add_spacer(height=4)
+            # The new Angle of Attack slider (0° to 10°)
+            dpg.add_slider_float(
+                label="Angle of Attack (Alpha)",
+                default_value=_s.live_alpha,
+                min_value=0.0,
+                max_value=10.0,
+                format="%.1f deg",
+                width=340,
+                callback=_on_alpha_slider,
+                tag="slider_live_alpha"
+            )
+
         dpg.add_spacer(width=40)
         _build_actions()
 
@@ -159,6 +182,10 @@ def _build_actions():
 
 
 # -------------- Logic -----------------------
+def _on_alpha_slider(sender, value):
+    _s.live_alpha = value
+    _s.dirty = True
+
 def _select_design(design):
     _s.design = design
     _s.params = design.default_parameters()
@@ -275,7 +302,7 @@ def _redraw():
         dpg.set_value("explorer_mean_cl", "Disabled")
         return
     try:
-        results = solve_panel_method(airfoil, alpha_deg=0.0)
+        results = solve_panel_method(airfoil, alpha_deg=_s.live_alpha)
         live_cl = results["cl"]
         dpg.set_value("explorer_mean_cl", f"{live_cl:.4f}")
 
