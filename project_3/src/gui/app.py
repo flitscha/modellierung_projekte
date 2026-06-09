@@ -5,7 +5,7 @@ Tabs:
     Optimizer       - lift maximisation under geometric constraints (Coming soon)
 """
 import dearpygui.dearpygui as dpg
-from gui.tabs import explorer, optimization
+from gui.tabs import explorer, optimization, xfoil_comparison
 
 
 def run(designs: list):
@@ -27,6 +27,7 @@ def run(designs: list):
         with dpg.tab_bar(tag="main_tabs"):
             explorer.build("main_tabs", designs)
             optimization.build("main_tabs", designs)
+            xfoil_comparison.build("main_tabs", designs)
 
     dpg.set_primary_window("main_window", True)
     dpg.show_viewport()
@@ -35,6 +36,7 @@ def run(designs: list):
     while dpg.is_dearpygui_running():
         explorer.tick()
         optimization.tick()
+        xfoil_comparison.tick()
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()
@@ -58,4 +60,3 @@ def _apply_theme():
             dpg.add_theme_style(dpg.mvStyleVar_TabRounding, 4)
             dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 6)
     dpg.bind_theme(global_theme)
-
