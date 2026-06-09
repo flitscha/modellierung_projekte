@@ -121,12 +121,7 @@ _TAG_X_CL    = "xfc_x_cl"
 _TAG_Y_CL    = "xfc_y_cl"
 _TAG_PS_CL   = "xfc_ps_cl"
 _TAG_XF_CL   = "xfc_xf_cl"
-_TAG_WT_CL   = "xfc_wt_cl"
 
-_TAG_X_LD    = "xfc_x_ld"
-_TAG_Y_LD    = "xfc_y_ld"
-_TAG_XF_LD   = "xfc_xf_ld"
-_TAG_WT_LD   = "xfc_wt_ld"
 
 
 # ── Build ─────────────────────────────────────────────────────────────────────
@@ -206,27 +201,17 @@ def _build_top_bar(designs):
 def _build_plots():
     with dpg.group(horizontal=True):
         # Left: Cl vs alpha
-        with dpg.plot(label="Cl vs α", height=280, width=-2, tag="xfc_plot_cl"):
+        with dpg.plot(label="Cl vs alpha", height=280, width=-2, tag="xfc_plot_cl"):
             dpg.add_plot_legend()
-            dpg.add_plot_axis(dpg.mvXAxis, label="α [°]", tag=_TAG_X_CL)
+            dpg.add_plot_axis(dpg.mvXAxis, label="alpha [deg]", tag=_TAG_X_CL)
             with dpg.plot_axis(dpg.mvYAxis, label="Cl", tag=_TAG_Y_CL):
                 dpg.add_line_series([], [], label="Panel solver (inviscid)",
                                     tag=_TAG_PS_CL)
                 dpg.add_line_series([], [], label="XFOIL",
                                     tag=_TAG_XF_CL)
-                dpg.add_line_series([], [], label="Wind tunnel (NACA 2412)",
-                                    tag=_TAG_WT_CL)
 
-    dpg.add_spacer(height=10)
 
-    with dpg.group(horizontal=True):
-        # Right: Cl/Cd vs alpha (viscous only)
-        with dpg.plot(label="Cl/Cd vs α  (viscous only)", height=240, width=-2, tag="xfc_plot_ld"):
-            dpg.add_plot_legend()
-            dpg.add_plot_axis(dpg.mvXAxis, label="α [°]", tag=_TAG_X_LD)
-            with dpg.plot_axis(dpg.mvYAxis, label="Cl/Cd", tag=_TAG_Y_LD):
-                dpg.add_line_series([], [], label="XFOIL", tag=_TAG_XF_LD)
-                dpg.add_line_series([], [], label="Wind tunnel", tag=_TAG_WT_LD)
+
 
 
 def _build_table():
@@ -335,34 +320,15 @@ def _apply_result(result):
         xf_err = result.get("xf_err", "XFOIL unavailable")
         _set_status(f"XFOIL: {xf_err}", (255, 180, 0))
 
-    if wt is not None:
-        dpg.set_value(_TAG_WT_CL, [wt[0].tolist(), wt[1].tolist()])
-    else:
-        dpg.set_value(_TAG_WT_CL, [[], []])
+
 
     dpg.fit_axis_data(_TAG_X_CL)
     dpg.fit_axis_data(_TAG_Y_CL)
 
     # ── Cl/Cd plot ────────────────────────────────────────────────────────────
-    if xf is not None:
-        n = min(len(xf[0]), len(xf[1]), len(xf[2]))
-        a_xf, cl_xf, cd_xf = xf[0][:n], xf[1][:n], xf[2][:n]
-        mask = cd_xf > 0
-        ld_xf = cl_xf[mask] / cd_xf[mask]
-        dpg.set_value(_TAG_XF_LD, [a_xf[mask].tolist(), ld_xf.tolist()])
-    else:
-        dpg.set_value(_TAG_XF_LD, [[], []])
 
-    if wt is not None:
-        wt_alpha, wt_cl, _, wt_cd, _ = wt
-        mask = wt_cd > 0
-        ld_wt = wt_cl[mask] / wt_cd[mask]
-        dpg.set_value(_TAG_WT_LD, [wt_alpha[mask].tolist(), ld_wt.tolist()])
-    else:
-        dpg.set_value(_TAG_WT_LD, [[], []])
 
-    dpg.fit_axis_data(_TAG_X_LD)
-    dpg.fit_axis_data(_TAG_Y_LD)
+
 
     # ── Table ─────────────────────────────────────────────────────────────────
     _build_result_table(name, ps, xf, wt)
@@ -385,11 +351,12 @@ def _build_result_table(name, ps, xf, wt):
         borders_outerV=True,
         row_background=True,
     ):
-        dpg.add_table_column(label="α [°]")
+        dpg.add_table_column(label="alpha [deg]")
         dpg.add_table_column(label="Cl  Panel solver")
         dpg.add_table_column(label="Cl  XFOIL")
-        dpg.add_table_column(label="Cl  Wind tunnel")
-        dpg.add_table_column(label="Δ Cl  (panel − XFOIL)")
+        dpg.add_table_column(label="Delta Cl (panel - XFOIL)")
+        if wt is not None:
+            dpg.add_table_column(label="Cl  Wind tunnel (NACA 2412)")
 
         alpha_ps, cl_ps = ps
 
@@ -419,12 +386,13 @@ def _build_result_table(name, ps, xf, wt):
                 dpg.add_text(f"{a:.0f}")
                 dpg.add_text(f"{cl_p:.4f}")
                 dpg.add_text(cl_xf_str)
-                dpg.add_text(cl_wt_str)
                 dpg.add_text(delta_str)
+                if wt is not None:
+                    dpg.add_text(cl_wt_str)
 
 
 def _clear_plots():
-    for tag in (_TAG_PS_CL, _TAG_XF_CL, _TAG_WT_CL, _TAG_XF_LD, _TAG_WT_LD):
+    for tag in (_TAG_PS_CL, _TAG_XF_CL):
         if dpg.does_item_exist(tag):
             dpg.set_value(tag, [[], []])
     if dpg.does_item_exist("xfc_table_group"):
