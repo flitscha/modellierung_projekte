@@ -5,7 +5,7 @@ Calculates the mean or min Cl over a range of angles of attack.
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from simulations.solver import solve_panel_method
+from simulations.solver_fast import solve_panel_method
 
 def compute_loss(design, params) -> dict | None:
     """

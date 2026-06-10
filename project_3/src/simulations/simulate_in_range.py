@@ -1,6 +1,6 @@
 import numpy as np
 from core.airfoil import Airfoil
-from simulations.solver import solve_panel_method
+from simulations.solver_fast import solve_panel_method
 
 
 def evaluate_cl_range(airfoil: Airfoil, start_deg: float = 0.0, end_deg: float = 10.0, step_deg: float = 1.0) -> dict:

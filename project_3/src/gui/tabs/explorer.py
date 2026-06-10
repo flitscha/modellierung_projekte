@@ -7,7 +7,7 @@ import dearpygui.dearpygui as dpg
 
 from core.parameter import IntParameter
 from gui.airfoil_canvas import render_geometry, render_pressure_analysis
-from simulations.solver import solve_panel_method
+from simulations.solver_fast import solve_panel_method
 from simulations.simulate_in_range import evaluate_cl_range
 
 CANVAS_W = 1000

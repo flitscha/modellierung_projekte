@@ -218,4 +218,3 @@ def solve_panel_method(airfoil: Airfoil, alpha_deg: float, v_inf: float = 1.0):
         "x_c": np.array(x[::-1]),
         "y_c": np.array(y[::-1])
     }
-
