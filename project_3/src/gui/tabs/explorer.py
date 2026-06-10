@@ -2,6 +2,7 @@
 Design Explorer Tab:
 Select an airfoil design, tweak parameters with sliders
 """
+import os
 import dearpygui.dearpygui as dpg
 
 from core.parameter import IntParameter
@@ -246,10 +247,14 @@ def _on_export_selig():
     if not _s.design.validate(_s.params):
         _set_status("Cannot export — invalid parameters", (255, 180, 0))
         return
+
+    export_dir = os.path.join(os.path.dirname(__file__), "..", "..", "exports")
+    os.makedirs(export_dir, exist_ok=True)
+
     airfoil = _s.design.build_airfoil(_s.params)
-    filename = f"{airfoil.name}.dat"
+    filename = os.path.join(export_dir, f"{airfoil.name}.dat")
     airfoil.save_selig(filename)
-    _set_status(f"Saved: {filename}", (100, 220, 100))
+    _set_status(f"Saved: {airfoil.name}.dat", (100, 220, 100))
 
 
 def _on_run_full_analysis():
