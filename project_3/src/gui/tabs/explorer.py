@@ -181,6 +181,17 @@ def _build_actions():
                 dpg.add_text("Average Cl: ", color=(160, 160, 180))
                 dpg.add_text("N/A", tag="explorer_avg_cl", color=(100, 220, 255))
 
+        dpg.add_spacer(width=30)
+
+        # buttons to open matplotlib plots
+        with dpg.group():
+            dpg.add_text("Plots", color=(200, 200, 200))
+            dpg.add_separator()
+            dpg.add_spacer(height=6)
+            dpg.add_button(label="Cl vs Alpha", width=140, height=36, callback=_on_plot_cl)
+            dpg.add_spacer(height=6)
+            dpg.add_button(label="Cp Distribution", width=140, height=36, callback=_on_plot_cp)
+
 
 # -------------- Logic -----------------------
 def _on_alpha_slider(sender, value):
@@ -280,6 +291,34 @@ def _on_run_full_analysis():
         _set_status("Analysis complete", (0, 255, 0))
     except Exception as e:
         _set_status(f"Analysis error: {e}", (255, 100, 100))
+
+
+def _on_plot_cl():
+    if _s.design is None:
+        return
+    from gui.plots import show_cl_plot
+    from simulations.simulate_in_range import evaluate_cl_range
+    airfoil = _s.design.build_airfoil(_s.params)
+    _set_status("Running sweep...", (255, 200, 10))
+    try:
+        stats = evaluate_cl_range(airfoil, start_deg=-10.0, end_deg=10.0, step_deg=1.0)
+        show_cl_plot(airfoil.name, stats["alpha_range"], stats["all_cl"])
+        _set_status("Plot opened", (100, 220, 100))
+    except Exception as e:
+        _set_status(f"Plot error: {e}", (255, 100, 100))
+
+
+def _on_plot_cp():
+    if _s.design is None:
+        return
+    from gui.plots import show_cp_plot
+    airfoil = _s.design.build_airfoil(_s.params)
+    try:
+        results = solve_panel_method(airfoil, alpha_deg=_s.live_alpha)
+        show_cp_plot(airfoil.name, _s.live_alpha, results["x_c"], results["cp"], results["y_c"])
+        _set_status("Plot opened", (100, 220, 100))
+    except Exception as e:
+        _set_status(f"Plot error: {e}", (255, 100, 100))
 
 
 def _redraw():
