@@ -42,68 +42,51 @@ def render_pressure_analysis(airfoil: Airfoil, width: int, height: int, alpha_de
     for i in range(n_panels):
         val = cp[i]
 
-        if val < 0:  # Sog / Unterdruck (Blau) -> Geht von Weiß (0) zu intensivem Blau (-2.5 oder weniger)
+        if val < 0: # neagtive pressure: Blue
             intensity = min(1.0, abs(val) / 2.5)
-            # Bei maximaler Intensität bleibt nur Blau [0, 0, 1], bei 0 ist es Weiß [1, 1, 1]
             color = [1.0 - intensity, 1.0 - intensity, 1.0, 1.0]
 
-        else:        # Überdruck (Rot) -> Geht von Weiß (0) zu intensivem Rot (1.0 oder mehr)
+        else: # positive pressure: Red
             intensity = min(1.0, val / 1.0)
-            # Bei maximaler Intensität bleibt nur Rot [1, 0, 0], bei 0 ist es Weiß [1, 1, 1]
             color = [1.0, 1.0 - intensity, 1.0 - intensity, 1.0]
 
         _draw_line(pixels, width, height, t["x_pix"][i], t["y_pix"][i], t["x_pix"][i+1], t["y_pix"][i+1], color)
 
-    # --- 2. DRAW PRESSURE DIFFERENCE ARROWS BELOW THE PLOT ---
+    # Draw pressure difference arrows below the plot
     baseline_y = int(height - 60)
-    chord = np.max(airfoil.x) - np.min(airfoil.x)
-
-    # Wir teilen das Profil sauber geometrisch in Oberseite und Unterseite
-    # Da CCW: Von 0 bis nose_idx ist OBERSEITE, von nose_idx bis Ende ist UNTERSEITE
     nose_idx = np.argmin(airfoil.x)
-    
-    # Extrahiere die X-Kontrollpunkte für Ober- und Unterseite
+
     x_c = 0.5 * (airfoil.x[:-1] + airfoil.x[1:])
-    
+
     x_upper = x_c[:nose_idx]
     cp_upper = cp[:nose_idx]
-    
+
     x_lower = x_c[nose_idx:]
     cp_lower = cp[nose_idx:]
 
-    # Wir erstellen uns feste X-Stationen entlang der Sehne für die Pfeile
-    # z.B. 40 gleichmäßige Messpunkte von der Nase bis zum Heck
-    n_stations = 500
+    # sample uniformly n_stations points at the x-axis
+    n_stations = 150
     x_stations = np.linspace(np.min(airfoil.x) + 0.005, np.max(airfoil.x) - 0.005, n_stations)
-    
-    _sum = 0.0
 
     for x_s in x_stations:
-        # Finde das jeweils am nächsten gelegene Panel auf der Ober- und Unterseite
+        # search for the nearest panels and use them to estimate the cp-difference
         idx_up = np.argmin(np.abs(x_upper - x_s))
         idx_lo = np.argmin(np.abs(x_lower - x_s))
-        
-        # JETZT stimmt die Physik: Druck unten minus Druck oben an der EXAKT gleichen X-Station!
-        # Höherer Druck unten = Positiver Auftrieb (Pfeil nach oben)
+
         delta_cp = cp_lower[idx_lo] - cp_upper[idx_up]
-        
-        # Für das Vorzeichen und die Summe:
-        _sum += delta_cp
 
-        # Pixel-X-Koordinate für das Rendern berechnen
-        mx_pix = int(t["off_x"] + x_s * t["scale"])
+        mx_pix = int(t["off_x"] + x_s * t["scale"]) # x-coordinate to pixel coordinate
 
-        # Pfeillänge skalieren (Vorzeichen bestimmt die Richtung)
-        arrow_len = int(delta_cp * 35.0)
+        arrow_len = int(delta_cp * 30.0)
 
         if 0 <= mx_pix < width and arrow_len != 0:
             target_y = baseline_y - arrow_len
 
             if arrow_len > 0:
-                arrow_color = [0.3, 0.9, 0.4, 0.7]     # Grün für Auftrieb
+                arrow_color = [0.3, 0.9, 0.4, 0.7] # Green: positive lift
                 tip_color = [0.3, 0.9, 0.4, 1.0]
             else:
-                arrow_color = [1.0, 0.4, 0.2, 0.7]     # Orange-Rot für Abtrieb
+                arrow_color = [1.0, 0.4, 0.2, 0.7] # Red: negative lift
                 tip_color = [1.0, 0.4, 0.2, 1.0]
 
             _draw_line(pixels, width, height, mx_pix, baseline_y, mx_pix, target_y, arrow_color)
@@ -113,10 +96,6 @@ def render_pressure_analysis(airfoil: Airfoil, width: int, height: int, alpha_de
                     pixels[target_y, mx_pix - 1] = tip_color
                 if mx_pix < width - 1:
                     pixels[target_y, mx_pix + 1] = tip_color
-
-    # Zum Schluss normieren wir die Summe über die Anzahl der Stationen
-    cl_from_sum = _sum / n_stations
-    print(f"Solver Cl: {solver_results['cl']:.4f} | Pfeil-Schätzung: {cl_from_sum:.4f}")
 
     # Draw a thin grey base line for the arrows to stand on
     start_b = max(0, int(t["off_x"]))
