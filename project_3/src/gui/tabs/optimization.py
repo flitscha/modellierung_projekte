@@ -71,13 +71,21 @@ def _build_top_bar(designs):
             width=160,
             callback=lambda s, v: _select_design(_s.designs_by_name[v]),
         )
-        dpg.add_spacer(width=30)
+        dpg.add_spacer(width=20)
+        dpg.add_text("Method:")
+        dpg.add_combo(
+            items=["Nelder-Mead", "Differential Evolution", "Powell"],
+            default_value="Differential Evolution",
+            tag="opt_method",
+            width=180,
+        )
+        dpg.add_spacer(width=20)
         dpg.add_button(label="Start", tag="opt_btn_start",
                        width=110, height=32, callback=_on_start)
         dpg.add_spacer(width=8)
         dpg.add_button(label="Stop", tag="opt_btn_stop",
                        width=110, height=32, callback=_on_stop, enabled=False)
-        dpg.add_spacer(width=30)
+        dpg.add_spacer(width=20)
         dpg.add_text("Status:", color=(160, 160, 180))
         dpg.add_spacer(width=4)
         dpg.add_text("idle", tag="opt_status", color=(160, 160, 180))
@@ -191,8 +199,11 @@ def _on_start():
     dpg.configure_item("opt_btn_start", enabled=False)
     dpg.configure_item("opt_btn_stop", enabled=True)
 
+    method = dpg.get_value("opt_method") if dpg.does_item_exist("opt_method") else "Differential Evolution"
+
     _s.run = OptimisationRun(
         design=_s.design,
+        method=method,
         on_progress=_on_progress,
         on_done=_on_done,
     )

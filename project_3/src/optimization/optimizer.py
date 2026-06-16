@@ -2,7 +2,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import minimize, differential_evolution
 
 from optimization.objective import compute_loss
 
@@ -27,8 +27,9 @@ class OptimisationResult:
 
 
 class OptimisationRun:
-    def __init__(self, design, on_progress=None, on_done=None):
+    def __init__(self, design, method="Differential Evolution", on_progress=None, on_done=None):
         self.design = design
+        self.method = method
         self.on_progress = on_progress
         self.on_done = on_done
 
@@ -57,9 +58,11 @@ class OptimisationRun:
         p_names = [p.name for p in param_space]
         bounds = [(p.low, p.high) for p in param_space]
 
-        # use default-values as starting values
         defaults = self.design.default_parameters()
         x0 = np.array([defaults[name] for name in p_names])
+
+        # guess the number of iterations, for progress visualisation
+        max_estimated_evals = 250 if self.method == "Differential Evolution" else 100
 
         def target_function(x):
             if self._stop_flag:
@@ -69,9 +72,8 @@ class OptimisationRun:
             current_params = {name: val for name, val in zip(p_names, x)}
             res = compute_loss(self.design, current_params)
 
-            # penalty, if something went wrong
             if res is None:
-                return 10.0
+                return 15.0 # penalty
 
             if self.best_loss is None or res["loss"] < self.best_loss:
                 self.best_loss = res["loss"]
@@ -79,27 +81,55 @@ class OptimisationRun:
                 self.best_result = res
                 self._iterations.append(self._counter)
                 self._losses.append(self.best_loss)
+
+                # UI-Update
+                if self.on_progress:
+                    pct = min(99.0, (self._counter / max_estimated_evals) * 100.0)
+                    self.on_progress(ProgressUpdate(
+                        iteration=self._counter, best_loss=self.best_loss,
+                        best_params=dict(self.best_params), best_result=dict(self.best_result),
+                        grid_pct=pct
+                    ))
+
             return res["loss"]
 
-        # callback for live-UI-Updates after each step
         def ui_callback(xk):
-            if self.on_progress and self.best_params:
-                pct = min(99.0, (self._counter / 100) * 100.0)
-                self.on_progress(ProgressUpdate(
-                    iteration=self._counter, best_loss=self.best_loss,
-                    best_params=dict(self.best_params), best_result=dict(self.best_result),
-                    grid_pct=pct
-                ))
-            time.sleep(0.01)
+            if self._stop_flag:
+                raise StopIteration("User stopped")
+            time.sleep(0.005)
 
-        # use minimize from SciPy
+        # callback for differential evaluation
+        def de_callback(xk, convergence=None):
+            if self._stop_flag:
+                raise StopIteration("User stopped")
+            time.sleep(0.005)
+
         try:
-            res = minimize(
-                target_function, x0, method='Nelder-Mead',
-                bounds=bounds, callback=ui_callback, options={'maxiter': 80}
-            )
+            if self.method == "Differential Evolution":
+                # differential evaluation: pupulation-based method to find global optimum
+                res = differential_evolution(
+                    target_function, 
+                    bounds=bounds, 
+                    callback=de_callback,
+                    maxiter=15,
+                    popsize=10,
+                    mutation=(0.5, 1.0),
+                    recombination=0.7,
+                    polish=True
+                )
+            elif self.method == "Powell":
+                res = minimize(
+                    target_function, x0, method='Powell',
+                    bounds=bounds, callback=ui_callback, options={'maxiter': 150}
+                )
+            else:
+                res = minimize(
+                    target_function, x0, method='Nelder-Mead',
+                    bounds=bounds, callback=ui_callback, options={'maxiter': 120}
+                )
+
             opt_result = OptimisationResult(
-                success=res.success, message=f"SciPy: {res.message}",
+                success=res.success, message=f"SciPy ({self.method}): {res.message}",
                 best_loss=self.best_loss, best_params=self.best_params, best_result=self.best_result,
                 history_iterations=list(self._iterations), history_losses=list(self._losses)
             )
