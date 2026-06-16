@@ -42,70 +42,81 @@ class BezierAirfoilDesign(Design):
         }
 
     def validate(self, params) -> bool:
-        # Basic ordering at LE
-        if params["top_ctrl1_y"] <= params["bot_ctrl1_y"] + 0.005:
+        if params["top_ctrl1_y"] <= params["bot_ctrl1_y"] + 0.01:
             return False
 
-        if params["top_ctrl2_y"] <= params["bot_ctrl2_y"] + 0.005:
+        if params["top_ctrl2_y"] <= params["bot_ctrl2_y"] + 0.01:
             return False
 
-        t = np.linspace(0, 1, 60)[:, None]
+        # sample x-coordinates to validate the thickness
+        t = np.linspace(0, 1, 50)[:, None]
 
         le = np.array([0.0, 0.0])
         te = np.array([1.0, 0.0])
 
+        # calculate top points
         p1_top = np.array([0.0, params["top_ctrl1_y"]])
         p2_top = np.array([params["top_ctrl2_x"], params["top_ctrl2_y"]])
-        top = (1-t)**3 * le + 3*(1-t)**2*t*p1_top + 3*(1-t)*t**2*p2_top + t**3*te
 
+        pts_top = (
+            (1 - t) ** 3 * le +
+            3 * (1 - t) ** 2 * t * p1_top +
+            3 * (1 - t) * t ** 2 * p2_top +
+            t ** 3 * te
+        )
+
+        x_top, y_top = pts_top[:, 0], pts_top[:, 1]
+
+        # calculate bottom points
         p1_bot = np.array([0.0, params["bot_ctrl1_y"]])
         p2_bot = np.array([params["bot_ctrl2_x"], params["bot_ctrl2_y"]])
-        bot = (1-t)**3 * le + 3*(1-t)**2*t*p1_bot + 3*(1-t)*t**2*p2_bot + t**3*te
 
-        y_top = top[:, 1]
-        y_bot = bot[:, 1]
+        pts_bot = (
+            (1 - t) ** 3 * le +
+            3 * (1 - t) ** 2 * t * p1_bot +
+            3 * (1 - t) * t ** 2 * p2_bot +
+            t ** 3 * te
+        )
 
-        thickness = y_top - y_bot
-        thickness2 = thickness[1:-1]
-        print(thickness)
-        #valid = (t[:, 0] > 0.02) & (t[:, 0] < 0.98)
+        x_bot, y_bot = pts_bot[:, 0], pts_bot[:, 1]
 
-        #thickness_core = thickness[valid]
+        x_eval = np.linspace(0.01, 0.99, 40)
 
-        if np.min(thickness2) < 0.007:
+        y_top_interp = np.interp(x_eval, x_top, y_top)
+        y_bot_interp = np.interp(x_eval, x_bot, y_bot)
+
+        thickness_samples = y_top_interp - y_bot_interp
+        camber_samples = 0.5 * (y_top_interp + y_bot_interp)
+
+        if np.any(thickness_samples < 0.003):
             return False
 
-        if np.min(thickness) < 0.0:
+        max_allowed_thickness = 0.24
+        if np.max(thickness_samples) > max_allowed_thickness:
             return False
 
-        # softer thickness cap
-        if np.max(thickness) > 0.20:
-            return False
-
-        camber = 0.5 * (y_top + y_bot)
-        if np.max(np.abs(camber)) > 0.15:
+        max_allowed_camber = 0.11
+        if np.max(np.abs(camber_samples)) > max_allowed_camber:
             return False
 
         return True
 
     def build_airfoil(self, params) -> Airfoil:
-        # Verwende Panel-Anzahl aus der Config für Konsistenz mit NACA
         n_side = (config.N_PANELS // 2) + 1 
 
         le = np.array([0.0, 0.0])
         te = np.array([1.0, 0.0])
 
-        # --- OBERSEITE ---
+        # top side
         p1_top = np.array([0.0, params["top_ctrl1_y"]])
         p2_top = np.array([params["top_ctrl2_x"], params["top_ctrl2_y"]])
         upper_curve = _evaluate_bezier(le, p1_top, p2_top, te, n_side)
 
-        # --- UNTERSEITE ---
+        # bottom side
         p1_bot = np.array([0.0, params["bot_ctrl1_y"]])
         p2_bot = np.array([params["bot_ctrl2_x"], params["bot_ctrl2_y"]])
         lower_curve = _evaluate_bezier(le, p1_bot, p2_bot, te, n_side)
 
-        # In Selig-Format bringen (Oberseite von TE -> LE, Unterseite von LE+1 -> TE)
         upper_selig = upper_curve[::-1]
         lower_selig = lower_curve[1:]
 
