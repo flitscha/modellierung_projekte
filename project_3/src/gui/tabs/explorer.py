@@ -108,12 +108,6 @@ def _build_canvas():
     dpg.add_image(_s.texture_tag, tag="explorer_image", width=CANVAS_W, height=CANVAS_H)
     with dpg.group(horizontal=True):
         dpg.add_spacer(width=8)
-        dpg.add_text("Max Thickness: ", color=(160, 160, 180))
-        dpg.add_text("-- %", tag="explorer_thickness", color=(255, 200, 10))
-        dpg.add_spacer(width=20)
-        dpg.add_text("Max Camber: ", color=(160, 160, 180))
-        dpg.add_text("-- %", tag="explorer_camber", color=(255, 200, 10))
-        dpg.add_spacer(width=20)
         dpg.add_text("Live Cl (0°): ", color=(160, 160, 180))
         dpg.add_text("--", tag="explorer_mean_cl", color=(255, 200, 10))
 
@@ -332,10 +326,6 @@ def _redraw():
         _set_status("Geometry OK", (0, 255, 0))
 
     airfoil = _s.design.build_airfoil(_s.params)
-
-    # Update geometry numerical information strings
-    dpg.set_value("explorer_thickness", f"{_s.params['thickness']*100:.1f} %")
-    dpg.set_value("explorer_camber", f"{_s.params['camber']*100:.1f} %")
 
     # live calculations
     results = None

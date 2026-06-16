@@ -62,7 +62,7 @@ class OptimisationRun:
         x0 = np.array([defaults[name] for name in p_names])
 
         # guess the number of iterations, for progress visualisation
-        max_estimated_evals = 250 if self.method == "Differential Evolution" else 100
+        max_estimated_evals = 1500 if self.method == "Differential Evolution" else 150
 
         def target_function(x):
             if self._stop_flag:
@@ -73,7 +73,7 @@ class OptimisationRun:
             res = compute_loss(self.design, current_params)
 
             if res is None:
-                return 15.0 # penalty
+                return 100000000.0 # penalty
 
             if self.best_loss is None or res["loss"] < self.best_loss:
                 self.best_loss = res["loss"]
@@ -111,7 +111,7 @@ class OptimisationRun:
                     target_function, 
                     bounds=bounds, 
                     callback=de_callback,
-                    maxiter=15,
+                    maxiter=30,
                     popsize=10,
                     mutation=(0.5, 1.0),
                     recombination=0.7,
