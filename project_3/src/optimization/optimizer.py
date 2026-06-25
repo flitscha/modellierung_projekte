@@ -98,7 +98,7 @@ class OptimisationRun:
                 raise StopIteration("User stopped")
             time.sleep(0.005)
 
-        # callback for differential evaluation
+        # callback for differential evolution
         def de_callback(xk, convergence=None):
             if self._stop_flag:
                 raise StopIteration("User stopped")
@@ -106,7 +106,7 @@ class OptimisationRun:
 
         try:
             if self.method == "Differential Evolution":
-                # differential evaluation: pupulation-based method to find global optimum
+                # differential evolution: pupulation-based method to find global optimum
                 res = differential_evolution(
                     target_function, 
                     bounds=bounds, 
