@@ -86,18 +86,18 @@ class BezierAirfoilDesign(Design):
         y_bot_interp = np.interp(x_eval, x_bot, y_bot)
 
         thickness_samples = y_top_interp - y_bot_interp
-        camber_samples = 0.5 * (y_top_interp + y_bot_interp)
+        #camber_samples = 0.5 * (y_top_interp + y_bot_interp)
 
-        if np.any(thickness_samples < 0.003):
+        if np.any(thickness_samples < 0.01):
             return False
 
         max_allowed_thickness = 0.24
         if np.max(thickness_samples) > max_allowed_thickness:
             return False
 
-        max_allowed_camber = 0.11
-        if np.max(np.abs(camber_samples)) > max_allowed_camber:
-            return False
+        #max_allowed_camber = 0.11
+        #if np.max(np.abs(camber_samples)) > max_allowed_camber:
+        #    return False
 
         return True
 
